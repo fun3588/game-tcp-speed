@@ -42,4 +42,4 @@ target_link_libraries(hook_proxy PRIVATE ws2_32)
 add_executable(launcher_gui WIN32
     gui/launcher_gui.cpp
 )
-target_link_libraries(launcher_gui PRIVATE comctl32 comdlg32 user32 gdi32 kernel32)
+target_link_libraries(launcher_gui PRIVATE comctl32 comdlg32 shell32 user32 gdi32 kernel32)
