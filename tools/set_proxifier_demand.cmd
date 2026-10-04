@@ -1,41 +1,40 @@
 @echo off
-chcp 65001 >nul
-title å°† ProxifierDrv é©±åŠ¨è®¾ä¸ºæŒ‰éœ€å¯åŠ¨ (demand)
+title ½« ProxifierDrv Çý¶¯ÉèÎª°´ÐèÆô¶¯ (demand)
 
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] æ­£åœ¨è¯·æ±‚ç®¡ç†å‘˜æƒé™... è¯·åœ¨å¼¹å‡ºçš„ UAC æç¤ºä¸­ç‚¹å‡»ã€æ˜¯ã€‘
+    echo [!] ÕýÔÚÇëÇó¹ÜÀíÔ±È¨ÏÞ... ÇëÔÚµ¯³öµÄ UAC ÌáÊ¾ÖÐµã»÷¡¾ÊÇ¡¿
     powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
     exit /b
 )
 
 echo ============================================================
-echo   æ­£åœ¨å°† ProxifierDrv é©±åŠ¨é…ç½®ä¸ºã€æŒ‰éœ€å¯åŠ¨ (demand)ã€‘
+echo   ÕýÔÚ½« ProxifierDrv Çý¶¯ÅäÖÃÎª¡¾°´ÐèÆô¶¯ (demand)¡¿
 echo ============================================================
 echo.
 
-echo [1/2] æ­£åœ¨å°† ProxifierDrv æœåŠ¡å¯åŠ¨ç±»åž‹ä¿®æ”¹ä¸º demand (æŒ‰éœ€å¯åŠ¨)...
+echo [1/2] ÕýÔÚ½« ProxifierDrv ·þÎñÆô¶¯ÀàÐÍÐÞ¸ÄÎª demand (°´ÐèÆô¶¯)...
 sc.exe config ProxifierDrv start= demand
 if %errorlevel% equ 0 (
-    echo   [OK] æœåŠ¡é…ç½®æˆåŠŸï¼å½“å‰å¯åŠ¨æ¨¡å¼: æŒ‰éœ€å¯åŠ¨ (demand)
+    echo   [OK] ·þÎñÅäÖÃ³É¹¦£¡µ±Ç°Æô¶¯Ä£Ê½: °´ÐèÆô¶¯ (demand)
 ) else (
-    echo   [!] ä¿®æ”¹æœåŠ¡å¯åŠ¨ç±»åž‹å¤±è´¥ã€‚
+    echo   [!] ÐÞ¸Ä·þÎñÆô¶¯ÀàÐÍÊ§°Ü¡£
 )
 
 echo.
-echo [2/2] æ­£åœ¨åœæ­¢å½“å‰æ­£åœ¨è¿è¡Œçš„ ProxifierDrv é©±åŠ¨...
+echo [2/2] ÕýÔÚÍ£Ö¹µ±Ç°ÕýÔÚÔËÐÐµÄ ProxifierDrv Çý¶¯...
 sc.exe stop ProxifierDrv
 if %errorlevel% equ 0 (
-    echo   [OK] ProxifierDrv é©±åŠ¨å·²æˆåŠŸåœæ­¢ï¼
+    echo   [OK] ProxifierDrv Çý¶¯ÒÑ³É¹¦Í£Ö¹£¡
 ) else (
-    echo   [!] é©±åŠ¨å¯èƒ½æœªåœ¨è¿è¡Œæˆ–å·²åœæ­¢ã€‚
+    echo   [!] Çý¶¯¿ÉÄÜÎ´ÔÚÔËÐÐ»òÒÑÍ£Ö¹¡£
 )
 
 echo.
 echo ============================================================
-echo   ã€è°ƒæ•´å®Œæˆï¼ã€‘
-echo   1. å¹³æ—¶ä¸è¿è¡Œ Proxifier æ—¶ï¼šé©±åŠ¨ä¸ä¼šéšå¼€æœºåŠ è½½ï¼Œping/connect å®Œå…¨æ¢å¤çœŸå€¼ï¼
-echo   2. ä¸»åŠ¨æ‰“å¼€ Proxifier è½¯ä»¶æ—¶ï¼šç³»ç»Ÿä¼šè‡ªåŠ¨æŒ‰éœ€æ‹‰èµ·é©±åŠ¨ï¼ŒProxifier ç…§æ ·æ­£å¸¸ä½¿ç”¨ï¼
+echo   ¡¾µ÷ÕûÍê³É£¡¡¿
+echo   1. Æ½Ê±²»ÔËÐÐ Proxifier Ê±£ºÇý¶¯²»»áËæ¿ª»ú¼ÓÔØ£¬ping/connect ÍêÈ«»Ö¸´ÕæÖµ£¡
+echo   2. Ö÷¶¯´ò¿ª Proxifier Èí¼þÊ±£ºÏµÍ³»á×Ô¶¯°´ÐèÀ­ÆðÇý¶¯£¬Proxifier ÕÕÑùÕý³£Ê¹ÓÃ£¡
 echo ============================================================
 echo.
 pause

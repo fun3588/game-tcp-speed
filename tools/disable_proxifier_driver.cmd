@@ -1,47 +1,46 @@
 @echo off
-chcp 65001 >nul
-title å¸è½½ä¸Žæ¸…ç† Proxifier é©±åŠ¨ (æ¢å¤çº¯å‡€ç½‘ç»œæ ˆ)
+title Ð¶ÔØÓëÇåÀí Proxifier Çý¶¯ (»Ö¸´´¿¾»ÍøÂçÕ»)
 
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] æ­£åœ¨è¯·æ±‚ç®¡ç†å‘˜æƒé™... è¯·åœ¨å¼¹å‡ºçš„ UAC æç¤ºä¸­ç‚¹å‡»ã€æ˜¯ã€‘
+    echo [!] ÕýÔÚÇëÇó¹ÜÀíÔ±È¨ÏÞ... ÇëÔÚµ¯³öµÄ UAC ÌáÊ¾ÖÐµã»÷¡¾ÊÇ¡¿
     powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
     exit /b
 )
 
 echo ============================================================
-echo   ProxifierDrv å†…æ ¸é©±åŠ¨æ¸…ç†å·¥å…· (å½»åº•æ¸…é™¤æœ¬åœ°ä»£ç­” SYN å‡æ¡æ‰‹)
+echo   ProxifierDrv ÄÚºËÇý¶¯ÇåÀí¹¤¾ß (³¹µ×Çå³ý±¾µØ´ú´ð SYN ¼ÙÎÕÊÖ)
 echo ============================================================
 echo.
 
-echo [1/3] æ­£åœ¨åœæ­¢ ProxifierDrv é©±åŠ¨æœåŠ¡...
+echo [1/3] ÕýÔÚÍ£Ö¹ ProxifierDrv Çý¶¯·þÎñ...
 sc.exe stop ProxifierDrv
 if %errorlevel% equ 0 (
-    echo   [OK] ProxifierDrv é©±åŠ¨å·²æˆåŠŸåœæ­¢ï¼
+    echo   [OK] ProxifierDrv Çý¶¯ÒÑ³É¹¦Í£Ö¹£¡
 ) else (
-    echo   [!] é©±åŠ¨å¯èƒ½æœªåœ¨è¿è¡Œæˆ–å·²åœæ­¢ã€‚
+    echo   [!] Çý¶¯¿ÉÄÜÎ´ÔÚÔËÐÐ»òÒÑÍ£Ö¹¡£
 )
 
 echo.
-echo [2/3] æ­£åœ¨ç¦ç”¨å¹¶åˆ é™¤ ProxifierDrv é©±åŠ¨æœåŠ¡...
+echo [2/3] ÕýÔÚ½ûÓÃ²¢É¾³ý ProxifierDrv Çý¶¯·þÎñ...
 sc.exe config ProxifierDrv start= disabled >nul 2>&1
 sc.exe delete ProxifierDrv
 if %errorlevel% equ 0 (
-    echo   [OK] ProxifierDrv é©±åŠ¨æœåŠ¡å·²æˆåŠŸä»Žç³»ç»Ÿåˆ é™¤ï¼
+    echo   [OK] ProxifierDrv Çý¶¯·þÎñÒÑ³É¹¦´ÓÏµÍ³É¾³ý£¡
 ) else (
-    echo   [!] é©±åŠ¨æœåŠ¡åˆ é™¤å®Œæˆã€‚
+    echo   [!] Çý¶¯·þÎñÉ¾³ýÍê³É¡£
 )
 
 echo.
-echo [3/3] æ­£åœ¨é‡ç½® Winsock ç›®å½•ä¸Ž IP åè®®æ ˆ...
+echo [3/3] ÕýÔÚÖØÖÃ Winsock Ä¿Â¼Óë IP Ð­ÒéÕ»...
 netsh winsock reset >nul 2>&1
 netsh int ip reset >nul 2>&1
-echo   [OK] ç³»ç»Ÿç½‘ç»œæ ˆå·²å®Œå…¨æ¢å¤çº¯å‡€çŠ¶æ€ï¼
+echo   [OK] ÏµÍ³ÍøÂçÕ»ÒÑÍêÈ«»Ö¸´´¿¾»×´Ì¬£¡
 
 echo.
 echo ============================================================
-echo   æ¸…ç†å®Œæ¯•ï¼æ‰€æœ‰åº”ç”¨ç¨‹åºå°†ä¸å†è¢« Proxifier é©±åŠ¨æœ¬åœ°ä»£ç­”ä¼ªæ¡æ‰‹ã€‚
-echo   å»ºè®®é‡å¯ä¸€æ¬¡ç”µè„‘ä½¿ç½‘ç»œå†…æ ¸å®Œå…¨é‡ç½®ã€‚
+echo   ÇåÀíÍê±Ï£¡ËùÓÐÓ¦ÓÃ³ÌÐò½«²»ÔÙ±» Proxifier Çý¶¯±¾µØ´ú´ðÎ±ÎÕÊÖ¡£
+echo   ½¨ÒéÖØÆôÒ»´ÎµçÄÔÊ¹ÍøÂçÄÚºËÍêÈ«ÖØÖÃ¡£
 echo ============================================================
 echo.
 pause

@@ -1,20 +1,19 @@
 @echo off
-chcp 65001 >nul
-title æ¢å¤ Proxifier é©±åŠ¨
+title »Ö¸´ Proxifier Çý¶¯
 
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] æ­£åœ¨è¯·æ±‚ç®¡ç†å‘˜æƒé™... è¯·åœ¨å¼¹å‡ºçš„ UAC æç¤ºä¸­ç‚¹å‡»ã€æ˜¯ã€‘
+    echo [!] ÕýÔÚÇëÇó¹ÜÀíÔ±È¨ÏÞ... ÇëÔÚµ¯³öµÄ UAC ÌáÊ¾ÖÐµã»÷¡¾ÊÇ¡¿
     powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
     exit /b
 )
 
-echo æ­£åœ¨é‡æ–°å¯åŠ¨ Proxifier é©±åŠ¨æœåŠ¡...
+echo ÕýÔÚÖØÐÂÆô¶¯ Proxifier Çý¶¯·þÎñ...
 sc.exe create ProxifierDrv type= kernel start= demand binPath= "C:\Program Files (x86)\Proxifier\Driver\ProxifierDrv.sys" >nul 2>&1
 sc.exe start ProxifierDrv
 if %errorlevel% equ 0 (
-    echo [OK] Proxifier é©±åŠ¨å·²æ¢å¤è¿è¡Œï¼
+    echo [OK] Proxifier Çý¶¯ÒÑ»Ö¸´ÔËÐÐ£¡
 ) else (
-    echo [!] å¯åŠ¨å¤±è´¥ï¼Œè¯·æ£€æŸ¥é©±åŠ¨æ–‡ä»¶æ˜¯å¦å­˜åœ¨ã€‚
+    echo [!] Æô¶¯Ê§°Ü£¬Çë¼ì²éÇý¶¯ÎÄ¼þÊÇ·ñ´æÔÚ¡£
 )
 pause

@@ -109,7 +109,7 @@ if __name__ == "__main__":
         loss_str = f", 丢包率: {int(d_loss*100)}%" if d_loss > 0 else ""
         print(f"  [-] 直连延迟 (不加速): {d_avg:.1f} ms (最低 {d_min:.1f} ms{loss_str})")
     else:
-        print(f"  [-] 直连状态 (不加速): ❌ {d_res}")
+        print(f"  [-] 直连状态 (不加速): [未连通] {d_res}")
 
     # 2. 测试专线加速 (真实端到端 RTT)
     print(f"[2/2] 正在测试【专线加速 (已加速)】真实端到端网络延迟 (本地端口: {port})...")
@@ -118,11 +118,11 @@ if __name__ == "__main__":
         p_avg, p_min = p_res
         print(f"  [+] 专线真实端到端延迟: {p_avg:.1f} ms (最低 {p_min:.1f} ms)")
         if p_avg < 260:
-            print("  [+] 专线传输质量: 极速畅通 ★★★★★ (直连海外骨干网)")
+            print("  [+] 专线传输质量: 极速畅通 [5星级] (直连海外骨干网)")
         elif p_avg < 450:
-            print("  [+] 专线传输质量: 良好稳定 ★★★★☆ (适合全天候稳定挂机与副本)")
+            print("  [+] 专线传输质量: 良好稳定 [4星级] (适合全天候稳定挂机与副本)")
         else:
-            print("  [!] 专线传输质量: 一般 ★★★☆☆ (建议切换备用专线或刷新订阅)")
+            print("  [!] 专线传输质量: 一般 [3星级] (建议切换备用专线或刷新订阅)")
     else:
         print(f"  [!] 专线测速失败: {p_res}")
         print("  [!] 建议检查 Sing-box 核心是否运行，或点击底部重新拉取订阅！")
@@ -131,16 +131,16 @@ if __name__ == "__main__":
 
     # 3. 对比结论
     if p_ok and not d_ok:
-        print("[★] 加速优化效果: 成功突破直连阻断！")
-        print("    直连时网络包直接被掐断，专线以 %.1f ms 延迟稳定护航！" % p_res[0])
+        print("[评级] 加速优化效果: 成功突破直连阻断！")
+        print("       直连时网络包直接被掐断，专线以 %.1f ms 延迟稳定护航！" % p_res[0])
     elif p_ok and d_ok:
         d_avg = d_res[0]
         p_avg = p_res[0]
         diff = d_avg - p_avg
         if diff > 5:
             percent = (diff / d_avg) * 100.0
-            print(f"[★] 加速优化: 延迟降低 {diff:.1f} ms (提速 {percent:.1f}%)")
+            print(f"[评级] 加速优化: 延迟降低 {diff:.1f} ms (提速 {percent:.1f}%)")
         elif diff < -5:
-            print(f"[★] 延迟对比: 专线 {p_avg:.1f} ms vs 直连 {d_avg:.1f} ms")
+            print(f"[评级] 延迟对比: 专线 {p_avg:.1f} ms vs 直连 {d_avg:.1f} ms")
         else:
-            print(f"[★] 延迟对比: 专线与直连基本相当 (~{p_avg:.1f} ms)")
+            print(f"[评级] 延迟对比: 专线与直连基本相当 (~{p_avg:.1f} ms)")
