@@ -4,8 +4,13 @@
 通过本地 Sing-box (127.0.0.1:2081) 测试连接游戏服务器 (141.95.207.63:8085) 的实际往返延迟
 """
 import sys
+import io
 import time
 import socket
+
+# 强制 UTF-8 输出，杜绝 Windows 管道乱码
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 def test_socks5_latency(proxy_host="127.0.0.1", proxy_port=2081, target_ip="141.95.207.63", target_port=8085, timeout=5.0):
     ip_bytes = [int(x) for x in target_ip.split(".")]

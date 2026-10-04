@@ -546,7 +546,7 @@ static DWORD WINAPI FetchSubWorker(LPVOID lpParam) {
     GetAppDir(appDir, MAX_PATH);
 
     wchar_t cmdLine[MAX_PATH * 4];
-    _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"python \"%s\\update_sub.py\" \"%s\" \"%s\"", appDir, p->url.c_str(), p->prefix.c_str());
+    _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"python -X utf8 \"%s\\update_sub.py\" \"%s\" \"%s\"", appDir, p->url.c_str(), p->prefix.c_str());
 
     AppendLog(L"[*] 正在从订阅拉取最新节点...");
 
@@ -606,7 +606,7 @@ static DWORD WINAPI TestSpeedWorker(LPVOID lpParam) {
     GetWindowTextW(g_hEditPort, portStr, 16);
 
     wchar_t cmdLine[MAX_PATH * 3];
-    _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"python \"%s\\test_speed.py\" %s", appDir, portStr);
+    _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"python -X utf8 \"%s\\test_speed.py\" %s", appDir, portStr);
 
     AppendLog(L"[*] 正在向游戏服 (141.95.207.63:8085) 测试连接与延迟...");
 
@@ -636,10 +636,10 @@ static DWORD WINAPI TestSpeedWorker(LPVOID lpParam) {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
 
-        wchar_t wbuf[2048] = { 0 };
-        MultiByteToWideChar(CP_UTF8, 0, output.c_str(), -1, wbuf, 2048);
-        if (wcslen(wbuf) == 0) {
-            MultiByteToWideChar(CP_ACP, 0, output.c_str(), -1, wbuf, 2048);
+        wchar_t wbuf[4096] = { 0 };
+        int convRes = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, output.c_str(), -1, wbuf, 4096);
+        if (convRes == 0) {
+            MultiByteToWideChar(CP_ACP, 0, output.c_str(), -1, wbuf, 4096);
         }
 
         wchar_t* line = wcstok(wbuf, L"\r\n");

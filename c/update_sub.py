@@ -3,11 +3,16 @@
 纯净更新主/备专线节点到 config.json
 """
 import sys
+import io
 import os
 import json
 import urllib.request
 import ssl
 import re
+
+# 强制 UTF-8 输出
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 def update_node(sub_url, is_primary=True):
     node_tag = "主节点-0001 (新加坡)" if is_primary else "备节点-0709 (新加坡)"
