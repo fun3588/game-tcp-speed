@@ -6,6 +6,8 @@
 #define _UNICODE
 #endif
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <shellapi.h>
 #include <commctrl.h>
@@ -106,6 +108,68 @@ static void SaveProxyConfig(const wchar_t* portStr) {
     WritePrivateProfileStringW(L"Proxy", L"Port", portStr, iniPath);
 }
 
+// 寻找一个当前系统未被占用的可用随机高位端口
+static unsigned short GetRandomAvailablePort() {
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) {
+        WSACleanup();
+        return 2081;
+    }
+
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr.sin_port = 0; // 0 让操作系统从动态可用端口范围中分配一个空闲端口
+
+    unsigned short port = 2081;
+    if (bind(s, (sockaddr*)&addr, sizeof(addr)) == 0) {
+        int len = sizeof(addr);
+        if (getsockname(s, (sockaddr*)&addr, &len) == 0) {
+            port = ntohs(addr.sin_port);
+        }
+    }
+    closesocket(s);
+    WSACleanup();
+    return port;
+}
+
+// 动态更新 config.json 中的 listen_port
+static void UpdateConfigPort(const wchar_t* cfgPath, unsigned short port) {
+    FILE* fp = _wfopen(cfgPath, L"rb");
+    if (!fp) return;
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    std::vector<char> buf(size + 1, 0);
+    fread(buf.data(), 1, size, fp);
+    fclose(fp);
+
+    std::string s(buf.data());
+    size_t pos = s.find("\"listen_port\":");
+    if (pos != std::string::npos) {
+        size_t numStart = s.find_first_of("0123456789", pos + 14);
+        if (numStart != std::string::npos) {
+            size_t numEnd = s.find_first_not_of("0123456789", numStart);
+            if (numEnd != std::string::npos) {
+                char portA[16];
+                snprintf(portA, sizeof(portA), "%u", port);
+                s.replace(numStart, numEnd - numStart, portA);
+
+                FILE* outFp = _wfopen(cfgPath, L"wb");
+                if (outFp) {
+                    fwrite(s.data(), 1, s.size(), outFp);
+                    fclose(outFp);
+                }
+            }
+        }
+    }
+}
+
 // 启动 Sing-box 核心
 static void StartSingBox() {
     if (g_SbProcInfo.hProcess != NULL) {
@@ -124,6 +188,22 @@ static void StartSingBox() {
         AppendLog(L"错误: 未找到 sing-box.exe，请检查 Sing-box 目录！");
         return;
     }
+
+    // 动态生成未被占用的随机可用端口
+    unsigned short randPort = GetRandomAvailablePort();
+    wchar_t portStr[16];
+    _snwprintf(portStr, sizeof(portStr)/sizeof(wchar_t), L"%u", randPort);
+    
+    // 同步更新界面、ini 以及 config.json
+    if (g_hEditPort) {
+        SetWindowTextW(g_hEditPort, portStr);
+    }
+    SaveProxyConfig(portStr);
+    UpdateConfigPort(cfgPath, randPort);
+    
+    wchar_t portMsg[128];
+    _snwprintf(portMsg, sizeof(portMsg)/sizeof(wchar_t), L"[端口随机] 系统已动态分配可用端口: %u (零端口冲突)", randPort);
+    AppendLog(portMsg);
 
     wchar_t cmdLine[MAX_PATH * 3];
     _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"\"%s\" run -c \"%s\"", exePath, cfgPath);
