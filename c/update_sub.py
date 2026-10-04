@@ -68,7 +68,7 @@ def update_node(sub_url, is_primary=True):
         if ob.get("tag") == node_tag:
             new_outbounds.append(new_node)
             updated = True
-        elif ob.get("tag") in ("主节点-0001 (新加坡)", "备节点-0709 (新加坡)", "node", "direct"):
+        elif ob.get("tag") in ("主节点-0001 (新加坡)", "备节点-0709 (新加坡)", "极速专线-HY2 (直连抗丢包)", "node", "direct"):
             new_outbounds.append(ob)
 
     if not updated:
@@ -83,7 +83,7 @@ def update_node(sub_url, is_primary=True):
     # 规范化 selector
     for ob in new_outbounds:
         if ob.get("type") == "selector":
-            ob["outbounds"] = ["主节点-0001 (新加坡)", "备节点-0709 (新加坡)"]
+            ob["outbounds"] = ["极速专线-HY2 (直连抗丢包)", "主节点-0001 (新加坡)", "备节点-0709 (新加坡)"]
             ob["default"] = node_tag
 
     config["outbounds"] = new_outbounds

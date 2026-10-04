@@ -9,19 +9,33 @@
       "type": "mixed",
       "tag": "mixed-in",
       "listen": "127.0.0.1",
-      "listen_port": 2081,
+      "listen_port": 53126,
       "set_system_proxy": false
     }
   ],
   "outbounds": [
-    // 主订阅节点 (从主订阅自动更新)
+    {
+      "type": "hysteria2",
+      "tag": "极速专线-HY2 (直连抗丢包)",
+      "server": "66.154.126.18",
+      "server_port": 42468,
+      "password": "95012e97-e174-4ecf-8a88-a9c6dad2b513",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.bing.com",
+        "insecure": true,
+        "alpn": [
+          "h3"
+        ]
+      }
+    },
     {
       "type": "vless",
       "tag": "主节点-0001 (新加坡)",
       "server": "seekers-extraordinary-suppliers-goals.trycloudflare.com",
       "server_port": 443,
       "uuid": "d3b07384-d113-42a6-a51f-2831f237f37a",
-      "packet_encoding": "xudp",
+      "flow": "",
       "tls": {
         "enabled": true,
         "insecure": true,
@@ -33,24 +47,19 @@
       },
       "transport": {
         "type": "ws",
-        "path": "/mywspath",
-        "headers": {
-          "Host": "seekers-extraordinary-suppliers-goals.trycloudflare.com"
-        }
+        "path": "/mywspath"
       }
     },
-    // 备订阅节点 (从备订阅自动更新)
     {
       "type": "vless",
       "tag": "备节点-0709 (新加坡)",
-      "server": "telescope-costumes-reflected-resident.trycloudflare.com",
+      "server": "marvel-scholarships-bringing-wichita.trycloudflare.com",
       "server_port": 443,
       "uuid": "c993eed9-4317-40fa-bed1-667eec18e30c",
-      "packet_encoding": "xudp",
       "tls": {
         "enabled": true,
         "insecure": false,
-        "server_name": "telescope-costumes-reflected-resident.trycloudflare.com",
+        "server_name": "marvel-scholarships-bringing-wichita.trycloudflare.com",
         "alpn": [
           "http/1.1"
         ]
@@ -59,7 +68,7 @@
         "type": "ws",
         "path": "/vless",
         "headers": {
-          "Host": "telescope-costumes-reflected-resident.trycloudflare.com"
+          "Host": "marvel-scholarships-bringing-wichita.trycloudflare.com"
         }
       }
     },
@@ -67,10 +76,11 @@
       "type": "selector",
       "tag": "node",
       "outbounds": [
+        "极速专线-HY2 (直连抗丢包)",
         "主节点-0001 (新加坡)",
         "备节点-0709 (新加坡)"
       ],
-      "default": "主节点-0001 (新加坡)"
+      "default": "极速专线-HY2 (直连抗丢包)"
     },
     {
       "type": "direct",

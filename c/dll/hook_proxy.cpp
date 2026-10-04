@@ -12,6 +12,8 @@
 static char g_ProxyIp[64] = "127.0.0.1";
 static unsigned short g_ProxyPort = 10808;
 static char g_LogPath[MAX_PATH] = "proxy_hook.log";
+static HMODULE g_hModule = NULL;
+static DWORD g_lastConfigCheck = 0;
 
 // 原函数指针
 typedef int (WSAAPI* PFN_CONNECT)(SOCKET s, const sockaddr* name, int namelen);
@@ -42,8 +44,9 @@ static void WriteLog(const char* format, ...) {
 
 // 加载同目录下的 proxy_config.ini
 static void LoadConfig(HMODULE hModule) {
+    if (hModule) g_hModule = hModule;
     char modulePath[MAX_PATH];
-    if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
+    if (GetModuleFileNameA(g_hModule, modulePath, MAX_PATH)) {
         char* lastSlash = strrchr(modulePath, '\\');
         if (lastSlash) {
             *lastSlash = '\0';
@@ -53,7 +56,20 @@ static void LoadConfig(HMODULE hModule) {
             snprintf(iniPath, sizeof(iniPath), "%s\\proxy_config.ini", modulePath);
             
             GetPrivateProfileStringA("Proxy", "Host", "127.0.0.1", g_ProxyIp, sizeof(g_ProxyIp), iniPath);
-            g_ProxyPort = (unsigned short)GetPrivateProfileIntA("Proxy", "Port", 10808, iniPath);
+            unsigned short p = (unsigned short)GetPrivateProfileIntA("Proxy", "Port", 0, iniPath);
+            if (p != 0) g_ProxyPort = p;
+        }
+    }
+}
+
+static void RefreshConfigIfNeeded() {
+    DWORD now = GetTickCount();
+    if (now - g_lastConfigCheck > 1000) { // 至少 1 秒检查一次
+        g_lastConfigCheck = now;
+        unsigned short oldPort = g_ProxyPort;
+        LoadConfig(NULL);
+        if (oldPort != g_ProxyPort) {
+            WriteLog("[配置热更新] 代理端口从 %u 动态更新为 %u", oldPort, g_ProxyPort);
         }
     }
 }
@@ -148,6 +164,8 @@ static BOOL DoSocks5Handshake(SOCKET s, unsigned long target_ip_be, unsigned sho
 
 // 统一的连接处理逻辑
 static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BOOL isWSA, LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS) {
+    RefreshConfigIfNeeded();
+
     if (g_InHook) {
         if (isWSA) return pOriginalWSAConnect(s, name, namelen, lpCallerData, lpCalleeData, lpSQOS, lpGQOS);
         return pOriginalConnect(s, name, namelen);
