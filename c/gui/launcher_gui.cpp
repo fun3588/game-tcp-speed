@@ -608,7 +608,7 @@ static DWORD WINAPI TestSpeedWorker(LPVOID lpParam) {
     wchar_t cmdLine[MAX_PATH * 3];
     _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"python -X utf8 \"%s\\test_speed.py\" %s", appDir, portStr);
 
-    AppendLog(L"[*] 正在向游戏服 (141.95.207.63:8085) 测试连接与延迟...");
+    AppendLog(L"[*] 正在测速: 对比【直连 (不加速)】与【专线 (已加速)】网络质量...");
 
     STARTUPINFOW si = { sizeof(si) };
     si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
