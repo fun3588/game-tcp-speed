@@ -4,6 +4,12 @@ project(GameTcpSpeed LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_C_STANDARD 99)
 
+# 强制开启 Unicode 并指定源码字符集为 UTF-8
+add_definitions(-DUNICODE -D_UNICODE)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(-finput-charset=UTF-8)
+endif()
+
 # 统一输出目录到当前 c 目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
