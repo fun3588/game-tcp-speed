@@ -31,6 +31,7 @@
 #define ID_BTN_INJECT_PID       1009
 #define ID_BTN_FETCH_SUB_PRI    1010
 #define ID_BTN_FETCH_SUB_BAK    1011
+#define ID_BTN_TEST_SPEED       1012
 
 #define ID_EDIT_GAME_PATH       2001
 #define ID_EDIT_PORT            2002
@@ -516,6 +517,70 @@ static void FetchSubscription(bool isPrimary) {
     if (h) CloseHandle(h);
 }
 
+// 异步测速线程
+static DWORD WINAPI TestSpeedWorker(LPVOID lpParam) {
+    wchar_t appDir[MAX_PATH];
+    GetAppDir(appDir, MAX_PATH);
+
+    wchar_t portStr[16];
+    GetWindowTextW(g_hEditPort, portStr, 16);
+
+    wchar_t cmdLine[MAX_PATH * 3];
+    _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"python \"%s\\test_speed.py\" %s", appDir, portStr);
+
+    AppendLog(L"[*] 正在向游戏服 (141.95.207.63:8085) 测试连接与延迟...");
+
+    STARTUPINFOW si = { sizeof(si) };
+    si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = { 0 };
+
+    HANDLE hReadPipe, hWritePipe;
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    CreatePipe(&hReadPipe, &hWritePipe, &sa, 0);
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+    si.hStdOutput = hWritePipe;
+    si.hStdError = hWritePipe;
+
+    if (CreateProcessW(NULL, cmdLine, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, appDir, &si, &pi)) {
+        CloseHandle(hWritePipe);
+        char buf[512];
+        DWORD bytesRead;
+        std::string output;
+        while (ReadFile(hReadPipe, buf, sizeof(buf) - 1, &bytesRead, NULL) && bytesRead > 0) {
+            buf[bytesRead] = '\0';
+            output += buf;
+        }
+        CloseHandle(hReadPipe);
+        WaitForSingleObject(pi.hProcess, 15000);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+
+        wchar_t wbuf[2048] = { 0 };
+        MultiByteToWideChar(CP_UTF8, 0, output.c_str(), -1, wbuf, 2048);
+        if (wcslen(wbuf) == 0) {
+            MultiByteToWideChar(CP_ACP, 0, output.c_str(), -1, wbuf, 2048);
+        }
+
+        wchar_t* line = wcstok(wbuf, L"\r\n");
+        while (line) {
+            if (wcslen(line) > 0) AppendLog(line);
+            line = wcstok(NULL, L"\r\n");
+        }
+    } else {
+        CloseHandle(hReadPipe);
+        CloseHandle(hWritePipe);
+        AppendLog(L"[!] 启动测速进程失败！");
+    }
+    return 0;
+}
+
+static void RunSpeedTest() {
+    StartSingBox();
+    HANDLE h = CreateThread(NULL, 0, TestSpeedWorker, NULL, 0, NULL);
+    if (h) CloseHandle(h);
+}
+
 // 窗口过程
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
@@ -544,11 +609,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblNode = CreateWindowW(L"STATIC", L"当前加速节点:", WS_CHILD | WS_VISIBLE, 30, y + 25, 90, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblNode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hComboNodes = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 125, y + 22, 235, 180, hWnd, (HMENU)ID_COMBO_NODES, g_hInstance, NULL);
+        g_hComboNodes = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 120, y + 22, 175, 180, hWnd, (HMENU)ID_COMBO_NODES, g_hInstance, NULL);
         SendMessageW(g_hComboNodes, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        HWND hBtnApplyNode = CreateWindowW(L"BUTTON", L"应用切换", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, y + 21, 75, 26, hWnd, (HMENU)ID_BTN_APPLY_NODE, g_hInstance, NULL);
+        HWND hBtnApplyNode = CreateWindowW(L"BUTTON", L"切换", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 300, y + 21, 65, 26, hWnd, (HMENU)ID_BTN_APPLY_NODE, g_hInstance, NULL);
         SendMessageW(hBtnApplyNode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+        HWND hBtnTestSpeed = CreateWindowW(L"BUTTON", L"⚡ 测速", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, y + 21, 75, 26, hWnd, (HMENU)ID_BTN_TEST_SPEED, g_hInstance, NULL);
+        SendMessageW(hBtnTestSpeed, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
 
         HWND hBtnEditCfg = CreateWindowW(L"BUTTON", L"编辑配置", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 450, y + 21, 70, 26, hWnd, (HMENU)ID_BTN_EDIT_CONFIG, g_hInstance, NULL);
         SendMessageW(hBtnEditCfg, WM_SETFONT, (WPARAM)g_hFont, TRUE);
@@ -649,6 +717,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             break;
         case ID_BTN_APPLY_NODE:
             ApplySelectedNode();
+            break;
+        case ID_BTN_TEST_SPEED:
+            RunSpeedTest();
             break;
         case ID_BTN_AUTO_INJECT:
             ToggleAutoInject();
