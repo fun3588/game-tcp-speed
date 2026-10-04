@@ -17,34 +17,99 @@
 
 ---
 
-## 数据流向示意
+## 架构图
 
-```text
-┌──────────────────────────────────────────────┐
-│ 游戏进程 (Game.exe)                          │
-│                                              │
-│   调用 connect(目标IP, 目标Port)             │
-│        │                                     │
-│        ▼ (被 hook_proxy.dll 拦截)            │
-│   改连 127.0.0.1:10808 (本地 Socks5)         │
-│   发送 Socks5 握手 (指定真实目标IP:Port)     │
-└────────┬─────────────────────────────────────┘
-         │ (本地 TCP 回环)
-         ▼
-┌──────────────────────────────────────────────┐
-│ Sing-box 核心进程 (sing-box.exe)             │
-│                                              │
-│   入站: Socks5 (127.0.0.1:10808)             │
-│   出站: Hysteria 2 / VLESS 隧道协议           │
-└────────┬─────────────────────────────────────┘
-         │ (公网加密高抗丢包通道)
-         ▼
-┌──────────────────────────────────────────────┐
-│ 你的海外/专线 VPS 服务器                      │
-└────────┬─────────────────────────────────────┘
-         │
-         ▼
-    目标游戏服务器
+### 1. 系统拓扑与隔离架构
+
+```mermaid
+flowchart TD
+    subgraph Client["用户本地 Windows 系统"]
+        subgraph Launcher["加速控制台 (launcher_gui.exe)"]
+            UI["Win32 原生控制界面"]
+            ProcMgr["进程挂起启动 & 注入器"]
+            SBMgr["Sing-box 后台进程守护"]
+        end
+
+        subgraph GameProcess["目标游戏进程 (Game.exe)"]
+            GameLogic["游戏逻辑主线程"]
+            subgraph Injected["注入模块 (hook_proxy.dll)"]
+                Hook["MinHook 引擎<br/>(拦截 connect / WSAConnect)"]
+                S5Client["Socks5 协议协商状态机"]
+            end
+        end
+
+        subgraph Core["Sing-box 核心服务 (sing-box.exe)"]
+            Inbound["Socks5 入站<br/>(127.0.0.1:10808)"]
+            Outbound["出站协议引擎<br/>(Hysteria 2 / VLESS)"]
+        end
+
+        subgraph ExistingTUN["系统现有环境 (互不干扰)"]
+            OtherTUN["现有 TUN 网卡 / VPN / 办公网"]
+            OtherApps["微信 / 浏览器 / 其它软件"]
+        end
+    end
+
+    subgraph Internet["公网环境"]
+        VPS["专线 / VPS 代理服务器<br/>(Sing-box / Hysteria 2)"]
+        GameServer["游戏官方服务器<br/>(TCP 服务端)"]
+    end
+
+    %% 控制流
+    UI -->|1. 启动并守护| SBMgr
+    SBMgr --> Core
+    UI -->|2. CREATE_SUSPENDED| ProcMgr
+    ProcMgr -->|3. 远程注入 DLL| Injected
+    ProcMgr -->|4. ResumeThread 唤醒| GameLogic
+
+    %% 网络数据流
+    GameLogic -->|TCP 连接调用| Hook
+    Hook -->|重定向至本地回环| S5Client
+    S5Client -->|Socks5 握手 & 真实目标报头| Inbound
+    Inbound --> Outbound
+    Outbound ==>|Hysteria 2 UDP 拥塞控制 / VLESS Reality| VPS
+    VPS -->|高品质直连| GameServer
+
+    %% 现有环境直连，不走代理
+    OtherApps -.-> OtherTUN
+    OtherTUN -.-> Internet
+
+    classDef highlight fill:#2d5a88,stroke:#6ba4dc,stroke-width:2px,color:#fff;
+    classDef node fill:#1e293b,stroke:#475569,stroke-width:1px,color:#e2e8f0;
+    class Injected,Core,Launcher,VPS highlight;
+```
+
+### 2. TCP 连接劫持与加速时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Game as 游戏进程 (Game.exe)
+    participant Hook as hook_proxy.dll (Winsock Hook)
+    participant SB as 本地 Sing-box (127.0.0.1:10808)
+    participant VPS as 远端 VPS (Hy2 / VLESS)
+    participant Target as 目标游戏服务器
+
+    Note over Game,Hook: 游戏尝试向目标建立 TCP 连接
+    Game->>Hook: connect(Target_IP, Target_Port)
+    Hook->>Hook: 检查目标地址 (排除 127.0.0.1)
+    
+    Note over Hook,SB: 切换为连接本地 Socks5 端口
+    Hook->>SB: connect(127.0.0.1, 10808)
+    Hook->>SB: 发送 Socks5 认证: 0x05 0x01 0x00
+    SB-->>Hook: 认证成功响应: 0x05 0x00
+    
+    Hook->>SB: 发送 CONNECT 命令 + Target_IP:Target_Port
+    SB->>VPS: 建立加密隧道 (Hy2/VLESS)
+    VPS->>Target: 与真实游戏服建立 TCP 连接
+    VPS-->>SB: 连接就绪
+    SB-->>Hook: 返回 0x05 0x00 (连接成功)
+
+    Hook-->>Game: 返回 0 (欺骗游戏连接已就绪)
+    
+    Note over Game,Target: 隧道打通，游戏正常传输数据
+    Game->>SB: send(游戏业务数据)
+    SB->>VPS: 加速传输
+    VPS->>Target: 转发业务数据
 ```
 
 ---
