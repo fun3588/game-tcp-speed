@@ -1,0 +1,63 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "listen_port": 10808
+    }
+  ],
+  "outbounds": [
+    // 方案一：Hysteria 2（游戏首选，抗丢包能力强）
+    {
+      "type": "hysteria2",
+      "tag": "proxy-hy2",
+      "server": "your-server.com",
+      "server_port": 443,
+      "password": "your_password",
+      "up_mbps": 50,
+      "down_mbps": 100,
+      "tls": {
+        "enabled": true,
+        "server_name": "your-server.com",
+        "insecure": false
+      }
+    },
+    // 方案二：VLESS Reality（备用，将下方的 default 切换即可）
+    {
+      "type": "vless",
+      "tag": "proxy-vless",
+      "server": "your-server.com",
+      "server_port": 443,
+      "uuid": "your-uuid",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.apple.com",
+        "reality": {
+          "enabled": true,
+          "public_key": "your_public_key",
+          "short_id": "your_short_id"
+        }
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      // 默认将通过 Socks5 入站的流量发往选定的出站节点
+      {
+        "inbound": ["socks-in"],
+        "outbound": "proxy-hy2"
+      }
+    ],
+    "auto_detect_interface": true
+  }
+}
