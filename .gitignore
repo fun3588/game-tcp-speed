@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+env/
+venv/
+
+# C / C++ 编译生成
+*.obj
+*.o
+*.lib
+*.exp
+*.dll
+*.exe
+*.pdb
+*.ilk
+build/
+bin/
+out/
+.vs/
+.vscode/
+.idea/
+CMakeSettings.json
+*.user
