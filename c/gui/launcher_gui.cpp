@@ -233,7 +233,14 @@ static int InjectMatchingProcesses(const wchar_t* targetExe) {
 
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
-            if (_wcsicmp(pe.szExeFile, targetExe) == 0) {
+            bool match = (_wcsicmp(pe.szExeFile, targetExe) == 0);
+            if (!match && wcsstr(pe.szExeFile, L"Firestorm") != NULL && wcsstr(targetExe, L"Firestorm") != NULL) {
+                // 排除登录器本身与 Agent 后台进程
+                if (_wcsicmp(pe.szExeFile, L"FirestormLauncher.exe") != 0 && _wcsicmp(pe.szExeFile, L"FirestormAgent.exe") != 0) {
+                    match = true;
+                }
+            }
+            if (match) {
                 // 如果尚未注入过
                 if (g_InjectedPids.find(pe.th32ProcessID) == g_InjectedPids.end()) {
                     if (InjectDllByPid(pe.th32ProcessID)) {
@@ -454,11 +461,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblTarget = CreateWindowW(L"STATIC", L"目标游戏进程名:", WS_CHILD | WS_VISIBLE, 30, y + 28, 105, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblTarget, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"Wow.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 140, y + 25, 120, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
+        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW 11.2.5 - Firestorm.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 140, y + 25, 200, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
         SendMessageW(g_hEditTargetName, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         // 重点按钮：开启自动监控注入
-        g_hBtnAutoInject = CreateWindowW(L"BUTTON", L"🚀 开启自动监控注入 (登录器推荐)", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 275, y + 22, 238, 30, hWnd, (HMENU)ID_BTN_AUTO_INJECT, g_hInstance, NULL);
+        g_hBtnAutoInject = CreateWindowW(L"BUTTON", L"🚀 开启自动监控注入", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 350, y + 22, 165, 30, hWnd, (HMENU)ID_BTN_AUTO_INJECT, g_hInstance, NULL);
         SendMessageW(g_hBtnAutoInject, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
 
         // 按钮：立即注入现有进程
@@ -481,7 +488,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hGrpLaunch = CreateWindowW(L"BUTTON", L" 备用：不走登录器直接启动 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 15, y, 510, 65, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hGrpLaunch, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditGamePath = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 30, y + 25, 260, 24, hWnd, (HMENU)ID_EDIT_GAME_PATH, g_hInstance, NULL);
+        g_hEditGamePath = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"E:\\gamel\\The War Within\\WoW 11.2.5 - Firestorm.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 30, y + 25, 260, 24, hWnd, (HMENU)ID_EDIT_GAME_PATH, g_hInstance, NULL);
         SendMessageW(g_hEditGamePath, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         HWND hBtnBrowse = CreateWindowW(L"BUTTON", L"浏览...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 295, y + 24, 65, 26, hWnd, (HMENU)ID_BTN_BROWSE, g_hInstance, NULL);
