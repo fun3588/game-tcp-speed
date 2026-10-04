@@ -1,49 +1,109 @@
 {
   "log": {
     "level": "info",
-    "timestamp": true
+    "timestamp": true,
+    "output": "singbox.log"
   },
   "inbounds": [
+    // 本地入口：SOCKS5 + HTTP 二合一，只监听回环，不设系统代理
+    // 端口由 start_singbox.py 随机分配后覆盖，这里的值是模板占位
     {
-      "type": "socks",
-      "tag": "socks-in",
+      "type": "mixed",
+      "tag": "mixed-in",
       "listen": "127.0.0.1",
-      "listen_port": 10808
+      "listen_port": 2081,
+      "set_system_proxy": false
     }
   ],
   "outbounds": [
-    // 方案一：Hysteria 2（游戏首选，抗丢包能力强）
-    {
-      "type": "hysteria2",
-      "tag": "proxy-hy2",
-      "server": "your-server.com",
-      "server_port": 443,
-      "password": "your_password",
-      "up_mbps": 50,
-      "down_mbps": 100,
-      "tls": {
-        "enabled": true,
-        "server_name": "your-server.com",
-        "insecure": false
-      }
-    },
-    // 方案二：VLESS Reality（备用，将下方的 default 切换即可）
+    // ───────── 新节点：Cloudflare 隧道（WebSocket over TLS） ─────────
+    // 方案 A：七牛 0709 新加坡 —— 主节点
+    // 注意：vless + ws 不能用 flow（xtls-rprx-vision 只适用于裸 TCP/REALITY）
     {
       "type": "vless",
-      "tag": "proxy-vless",
-      "server": "your-server.com",
+      "tag": "qiniu-0709",
+      "server": "controller-julie-alert-shakespeare.trycloudflare.com",
       "server_port": 443,
-      "uuid": "your-uuid",
-      "flow": "xtls-rprx-vision",
+      "uuid": "c993eed9-4317-40fa-bed1-667eec18e30c",
+      "packet_encoding": "xudp",
       "tls": {
         "enabled": true,
-        "server_name": "www.apple.com",
+        "server_name": "controller-julie-alert-shakespeare.trycloudflare.com",
+        "alpn": ["http/1.1"],
+        "utls": { "enabled": true, "fingerprint": "chrome" }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/vless",
+        "headers": { "Host": "controller-julie-alert-shakespeare.trycloudflare.com" }
+      }
+    },
+    // 方案 B：七牛 0001 新加坡 —— 备节点
+    // 只有它的 URL 带 allowInsecure=true，所以这里 insecure 为 true
+    {
+      "type": "vless",
+      "tag": "qiniu-0001",
+      "server": "seekers-extraordinary-suppliers-goals.trycloudflare.com",
+      "server_port": 443,
+      "uuid": "d3b07384-d113-42a6-a51f-2831f237f37a",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "seekers-extraordinary-suppliers-goals.trycloudflare.com",
+        "alpn": ["http/1.1"],
+        "insecure": true,
+        "utls": { "enabled": true, "fingerprint": "chrome" }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/mywspath",
+        "headers": { "Host": "seekers-extraordinary-suppliers-goals.trycloudflare.com" }
+      }
+    },
+    // ───────── 旧节点：直连 VPS 66.154.126.18（实测可用，留作兜底） ─────────
+    // 方案 C：Hysteria 2（UDP/QUIC 封装，抗丢包强）
+    // 这就是 Throne 当前在用的那个节点，参数从 throne.db 里读出来的
+    {
+      "type": "hysteria2",
+      "tag": "hy2-va1",
+      "server": "66.154.126.18",
+      "server_port": 42468,
+      "password": "95012e97-e174-4ecf-8a88-a9c6dad2b513",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.bing.com",
+        "alpn": ["h3"],
+        "insecure": true
+      }
+    },
+    // 方案 D：VLESS Reality（纯 TCP，无需 QUIC 封装）
+    // 注意 reality 必须带 utls，否则报 "uTLS is required by reality client"
+    {
+      "type": "vless",
+      "tag": "vl-reality-va1",
+      "server": "66.154.126.18",
+      "server_port": 30752,
+      "uuid": "95012e97-e174-4ecf-8a88-a9c6dad2b513",
+      "flow": "xtls-rprx-vision",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "apple.com",
+        "utls": { "enabled": true, "fingerprint": "chrome" },
         "reality": {
           "enabled": true,
-          "public_key": "your_public_key",
-          "short_id": "your_short_id"
+          "public_key": "W9g4XffWsSrvjoWw41bKqAK8nRZo_l0MXKH2z3yV1Gk",
+          "short_id": "1317768b"
         }
       }
+    },
+    // 选择器：clash_api 的热切换入口；default 会被 start_singbox.py 按 profile 覆盖
+    //   主实例 → qiniu-0709      备实例 → qiniu-0001
+    {
+      "type": "selector",
+      "tag": "node",
+      "outbounds": ["qiniu-0709", "qiniu-0001", "hy2-va1", "vl-reality-va1"],
+      "default": "hy2-va1"
     },
     {
       "type": "direct",
@@ -52,12 +112,19 @@
   ],
   "route": {
     "rules": [
-      // 默认将通过 Socks5 入站的流量发往选定的出站节点
-      {
-        "inbound": ["socks-in"],
-        "outbound": "proxy-hy2"
-      }
+      // 私网地址直连，别绕出去
+      { "ip_is_private": true, "outbound": "direct" }
     ],
+    // 其余全部走上面 selector 选中的节点
+    "final": "node",
     "auto_detect_interface": true
+  },
+  "experimental": {
+    // 控制接口：可热切换节点，不影响已有连接
+    // 切节点:  curl -X PUT http://127.0.0.1:<clash端口>/proxies/node -d "{\"name\":\"qiniu-0001\"}"
+    "clash_api": {
+      "external_controller": "127.0.0.1:9091",
+      "default_mode": "rule"
+    }
   }
 }
