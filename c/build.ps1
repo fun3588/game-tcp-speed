@@ -17,7 +17,7 @@ ninja
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
 Write-Host "[OK] Build succeeded!" -ForegroundColor Green
-Write-Host "Artifacts located in: E:\code\game-tcp-speed\bin" -ForegroundColor Green
-Write-Host "  - bin\hook_proxy.dll"
-Write-Host "  - bin\launcher_gui.exe"
+Write-Host "Artifacts located in: $scriptDir" -ForegroundColor Green
+Write-Host "  - c\hook_proxy.dll"
+Write-Host "  - c\launcher_gui.exe"
 Write-Host "============================================" -ForegroundColor Green
