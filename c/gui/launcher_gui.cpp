@@ -347,28 +347,39 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     g_hInstance = hInstance;
-    InitCommonControls();
+
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_WIN95_CLASSES;
+    InitCommonControlsEx(&icex);
 
     WNDCLASSEXA wc = { sizeof(WNDCLASSEXA) };
+    wc.cbSize = sizeof(WNDCLASSEXA);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = "GameSpeedLauncherWndClass";
 
-    RegisterClassExA(&wc);
+    if (!RegisterClassExA(&wc)) {
+        return 1;
+    }
 
     HWND hWnd = CreateWindowExA(
         WS_EX_APPWINDOW,
         wc.lpszClassName,
         "Game TCP Speed - 专线游戏加速器",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 500, 400,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 420,
         NULL, NULL, hInstance, NULL
     );
 
+    if (!hWnd) {
+        return 1;
+    }
+
     g_hMainWnd = hWnd;
-    ShowWindow(hWnd, nCmdShow);
+    ShowWindow(hWnd, SW_SHOWNORMAL);
     UpdateWindow(hWnd);
 
     MSG msg;
