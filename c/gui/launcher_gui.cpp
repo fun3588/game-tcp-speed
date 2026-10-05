@@ -34,6 +34,7 @@
 #define ID_BTN_FETCH_SUB_PRI    1010
 #define ID_BTN_FETCH_SUB_BAK    1011
 #define ID_BTN_TEST_SPEED       1012
+#define ID_BTN_MONITOR          1013
 
 #define ID_EDIT_GAME_PATH       2001
 #define ID_EDIT_PORT            2002
@@ -55,6 +56,7 @@ static HWND g_hEditLog = NULL;
 static HWND g_hLabelSbStatus = NULL;
 static HWND g_hComboNodes = NULL;
 static HWND g_hBtnAutoInject = NULL;
+static HWND g_hBtnMonitor = NULL;
 static HWND g_hEditSubPri = NULL;
 static HWND g_hEditSubBak = NULL;
 static HFONT g_hFont = NULL;
@@ -65,6 +67,11 @@ static PROCESS_INFORMATION g_SbProcInfo = { 0 };
 static bool g_bAutoInjecting = false;
 static HANDLE g_hAutoInjectThread = NULL;
 static std::set<DWORD> g_InjectedPids;
+
+// 10s 对比监控状态
+static bool g_bMonitoring = false;
+static HANDLE g_hMonitorThread = NULL;
+static HANDLE g_hMonitorProcess = NULL;
 
 static void AppendLog(const wchar_t* text) {
     if (!g_hEditLog) return;
@@ -661,6 +668,89 @@ static void RunSpeedTest() {
     if (h) CloseHandle(h);
 }
 
+// 异步连续对比监控线程 (每 10s 刷新一行)
+static DWORD WINAPI MonitorWorker(LPVOID lpParam) {
+    wchar_t appDir[MAX_PATH];
+    GetAppDir(appDir, MAX_PATH);
+
+    wchar_t portStr[16];
+    GetWindowTextW(g_hEditPort, portStr, 16);
+
+    wchar_t cmdLine[MAX_PATH * 3];
+    _snwprintf(cmdLine, sizeof(cmdLine)/sizeof(wchar_t), L"python -X utf8 \"%s\\test_speed.py\" %s --loop 10", appDir, portStr);
+
+    STARTUPINFOW si = { sizeof(si) };
+    si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = { 0 };
+
+    HANDLE hReadPipe, hWritePipe;
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    CreatePipe(&hReadPipe, &hWritePipe, &sa, 0);
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+    si.hStdOutput = hWritePipe;
+    si.hStdError = hWritePipe;
+
+    if (CreateProcessW(NULL, cmdLine, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, appDir, &si, &pi)) {
+        CloseHandle(hWritePipe);
+        g_hMonitorProcess = pi.hProcess;
+        char buf[512];
+        DWORD bytesRead;
+        std::string lineBuf;
+
+        while (g_bMonitoring && ReadFile(hReadPipe, buf, sizeof(buf) - 1, &bytesRead, NULL) && bytesRead > 0) {
+            buf[bytesRead] = '\0';
+            lineBuf += buf;
+            size_t nl;
+            while ((nl = lineBuf.find('\n')) != std::string::npos) {
+                std::string oneLine = lineBuf.substr(0, nl);
+                lineBuf.erase(0, nl + 1);
+                if (!oneLine.empty() && oneLine.back() == '\r') oneLine.pop_back();
+                if (!oneLine.empty()) {
+                    wchar_t wline[1024] = { 0 };
+                    int res = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, oneLine.c_str(), -1, wline, 1024);
+                    if (res == 0) MultiByteToWideChar(CP_ACP, 0, oneLine.c_str(), -1, wline, 1024);
+                    AppendLog(wline);
+                }
+            }
+        }
+        CloseHandle(hReadPipe);
+        if (pi.hProcess) {
+            TerminateProcess(pi.hProcess, 0);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            g_hMonitorProcess = NULL;
+        }
+    } else {
+        CloseHandle(hReadPipe);
+        CloseHandle(hWritePipe);
+        AppendLog(L"[!] 启动对比监控进程失败！");
+    }
+    return 0;
+}
+
+static void ToggleMonitor() {
+    if (!g_bMonitoring) {
+        StartSingBox();
+        g_bMonitoring = true;
+        if (g_hBtnMonitor) SetWindowTextW(g_hBtnMonitor, L"⏹ 停止监控");
+        AppendLog(L"⏱️ [实时对比监控已启动] 后台每 10 秒刷新一次加速与直连对比...");
+        g_hMonitorThread = CreateThread(NULL, 0, MonitorWorker, NULL, 0, NULL);
+    } else {
+        g_bMonitoring = false;
+        if (g_hMonitorProcess) {
+            TerminateProcess(g_hMonitorProcess, 0);
+        }
+        if (g_hMonitorThread) {
+            WaitForSingleObject(g_hMonitorThread, 1500);
+            CloseHandle(g_hMonitorThread);
+            g_hMonitorThread = NULL;
+        }
+        if (g_hBtnMonitor) SetWindowTextW(g_hBtnMonitor, L"⏱️ 对比监控(10s)");
+        AppendLog(L"已停止对比监控。");
+    }
+}
+
 // 窗口过程
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
@@ -683,39 +773,42 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         int y = 12;
 
         // ────── 区域 1：专线节点配置 ──────
-        HWND hGrpNode = CreateWindowW(L"BUTTON", L" 专线节点选择与配置 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 15, y, 520, 85, hWnd, NULL, g_hInstance, NULL);
+        HWND hGrpNode = CreateWindowW(L"BUTTON", L" 专线节点选择与监控配置 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 15, y, 520, 88, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hGrpNode, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
 
-        HWND hLblNode = CreateWindowW(L"STATIC", L"当前加速节点:", WS_CHILD | WS_VISIBLE, 30, y + 25, 90, 20, hWnd, NULL, g_hInstance, NULL);
+        HWND hLblNode = CreateWindowW(L"STATIC", L"加速节点:", WS_CHILD | WS_VISIBLE, 28, y + 25, 65, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblNode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hComboNodes = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 120, y + 22, 175, 180, hWnd, (HMENU)ID_COMBO_NODES, g_hInstance, NULL);
+        g_hComboNodes = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 95, y + 22, 160, 180, hWnd, (HMENU)ID_COMBO_NODES, g_hInstance, NULL);
         SendMessageW(g_hComboNodes, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        HWND hBtnApplyNode = CreateWindowW(L"BUTTON", L"切换", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 300, y + 21, 65, 26, hWnd, (HMENU)ID_BTN_APPLY_NODE, g_hInstance, NULL);
+        HWND hBtnApplyNode = CreateWindowW(L"BUTTON", L"切换", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 260, y + 21, 50, 26, hWnd, (HMENU)ID_BTN_APPLY_NODE, g_hInstance, NULL);
         SendMessageW(hBtnApplyNode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        HWND hBtnTestSpeed = CreateWindowW(L"BUTTON", L"⚡ 测速", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, y + 21, 75, 26, hWnd, (HMENU)ID_BTN_TEST_SPEED, g_hInstance, NULL);
+        HWND hBtnTestSpeed = CreateWindowW(L"BUTTON", L"⚡ 测速", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 315, y + 21, 65, 26, hWnd, (HMENU)ID_BTN_TEST_SPEED, g_hInstance, NULL);
         SendMessageW(hBtnTestSpeed, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
 
-        HWND hBtnEditCfg = CreateWindowW(L"BUTTON", L"编辑配置", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 450, y + 21, 70, 26, hWnd, (HMENU)ID_BTN_EDIT_CONFIG, g_hInstance, NULL);
-        SendMessageW(hBtnEditCfg, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        g_hBtnMonitor = CreateWindowW(L"BUTTON", L"⏱️ 对比监控(10s)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 385, y + 21, 135, 26, hWnd, (HMENU)ID_BTN_MONITOR, g_hInstance, NULL);
+        SendMessageW(g_hBtnMonitor, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
 
         // Socks5 端口与核心状态
-        HWND hLblPort = CreateWindowW(L"STATIC", L"本地 Socks 端口:", WS_CHILD | WS_VISIBLE, 30, y + 54, 100, 20, hWnd, NULL, g_hInstance, NULL);
+        HWND hLblPort = CreateWindowW(L"STATIC", L"本地端口:", WS_CHILD | WS_VISIBLE, 28, y + 56, 65, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblPort, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditPort = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"2081", WS_CHILD | WS_VISIBLE | ES_NUMBER, 135, y + 52, 60, 22, hWnd, (HMENU)ID_EDIT_PORT, g_hInstance, NULL);
+        g_hEditPort = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"2081", WS_CHILD | WS_VISIBLE | ES_NUMBER, 95, y + 54, 55, 22, hWnd, (HMENU)ID_EDIT_PORT, g_hInstance, NULL);
         SendMessageW(g_hEditPort, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hLabelSbStatus = CreateWindowW(L"STATIC", L"Sing-box: 未运行", WS_CHILD | WS_VISIBLE, 215, y + 54, 150, 20, hWnd, (HMENU)ID_LABEL_SB_STATUS, g_hInstance, NULL);
+        g_hLabelSbStatus = CreateWindowW(L"STATIC", L"Sing-box: 未运行", WS_CHILD | WS_VISIBLE, 160, y + 56, 135, 20, hWnd, (HMENU)ID_LABEL_SB_STATUS, g_hInstance, NULL);
         SendMessageW(g_hLabelSbStatus, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        HWND hBtnStartSb = CreateWindowW(L"BUTTON", L"启动核心", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, y + 51, 75, 24, hWnd, (HMENU)ID_BTN_START_SB, g_hInstance, NULL);
+        HWND hBtnStartSb = CreateWindowW(L"BUTTON", L"启动核心", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 305, y + 53, 68, 24, hWnd, (HMENU)ID_BTN_START_SB, g_hInstance, NULL);
         SendMessageW(hBtnStartSb, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        HWND hBtnStopSb = CreateWindowW(L"BUTTON", L"停止", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 450, y + 51, 70, 24, hWnd, (HMENU)ID_BTN_STOP_SB, g_hInstance, NULL);
+        HWND hBtnStopSb = CreateWindowW(L"BUTTON", L"停止", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 380, y + 53, 60, 24, hWnd, (HMENU)ID_BTN_STOP_SB, g_hInstance, NULL);
         SendMessageW(hBtnStopSb, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+        HWND hBtnEditCfg = CreateWindowW(L"BUTTON", L"编辑配置", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 448, y + 53, 72, 24, hWnd, (HMENU)ID_BTN_EDIT_CONFIG, g_hInstance, NULL);
+        SendMessageW(hBtnEditCfg, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         y += 95;
 
@@ -801,6 +894,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         case ID_BTN_TEST_SPEED:
             RunSpeedTest();
             break;
+        case ID_BTN_MONITOR:
+            ToggleMonitor();
+            break;
         case ID_BTN_AUTO_INJECT:
             ToggleAutoInject();
             break;
@@ -873,6 +969,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         break;
     }
     case WM_DESTROY:
+        if (g_bMonitoring) {
+            g_bMonitoring = false;
+            if (g_hMonitorProcess) {
+                TerminateProcess(g_hMonitorProcess, 0);
+                g_hMonitorProcess = NULL;
+            }
+            if (g_hMonitorThread) {
+                CloseHandle(g_hMonitorThread);
+                g_hMonitorThread = NULL;
+            }
+        }
         g_bAutoInjecting = false;
         if (g_hAutoInjectThread) {
             WaitForSingleObject(g_hAutoInjectThread, 500);

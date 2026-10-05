@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-游戏专线对比测速工具 (真实端到端 RTT 测量)
-测量【直连 (不加速)】与【专线 (加速)】的真实端到端网络往返延迟与质量评级
+游戏专线对比测速工具 (支持单次详细测试与周期循环对比监控)
 """
 import sys
 import io
 import time
 import socket
 import urllib.request
+import datetime
 
 # 强制 UTF-8 输出，杜绝 Windows 管道乱码
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -50,7 +50,8 @@ def test_direct_latency(target_ip=TARGET_IP, target_port=TARGET_PORT, count=3, t
                 s.close()
             except Exception:
                 pass
-        time.sleep(0.08)
+        if count > 1:
+            time.sleep(0.06)
 
     if fake_hijack_count > 0:
         return False, "伪响应阻断 (本地网关/网络驱动伪握手, 但发包即被 RST 强行掐断, 实际不通)", 1.0
@@ -87,7 +88,8 @@ def test_proxy_real_rtt(proxy_port, count=3, timeout=5.0):
                 times.append((t1 - t0) * 1000.0)
         except Exception as e:
             last_err = str(e)
-        time.sleep(0.08)
+        if count > 1:
+            time.sleep(0.06)
 
     if not times:
         return False, last_err
@@ -95,9 +97,62 @@ def test_proxy_real_rtt(proxy_port, count=3, timeout=5.0):
     min_ms = min(times)
     return True, (avg_ms, min_ms)
 
-if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 2081
+def run_loop_monitor(port, interval=10):
+    """连续对比监控模式：每隔指定秒数打一条清晰简明的对比日志"""
+    print(f"[*] 启动实时对比监控 (每 {interval}s 刷新一次)...")
+    sys.stdout.flush()
 
+    while True:
+        now_str = datetime.datetime.now().strftime("%H:%M:%S")
+        # 1. 快速测试直连 (1-2次)
+        d_ok, d_res, _ = test_direct_latency(count=2, timeout=2.0)
+        # 2. 快速测试专线 (1-2次)
+        p_ok, p_res = test_proxy_real_rtt(proxy_port=port, count=2, timeout=3.5)
+
+        if p_ok and d_ok:
+            d_val = d_res[0]
+            p_val = p_res[0]
+            diff = d_val - p_val
+            if diff > 5:
+                pct = (diff / d_val) * 100.0
+                print(f"📊 [对比监控] 直连: {d_val:.1f}ms | 专线: {p_val:.1f}ms | 优化: -{diff:.1f}ms (提速 {pct:.1f}%)")
+            elif diff < -5:
+                print(f"📊 [对比监控] 直连: {d_val:.1f}ms | 专线: {p_val:.1f}ms | 专线平稳 (相差 {-diff:.1f}ms)")
+            else:
+                print(f"📊 [对比监控] 直连: {d_val:.1f}ms | 专线: {p_val:.1f}ms | 两者延迟基本相当")
+        elif p_ok and not d_ok:
+            print(f"📊 [对比监控] 直连: [未连通/掐断] | 专线: {p_res[0]:.1f}ms | 状态: 专线稳定打通中")
+        elif not p_ok and d_ok:
+            print(f"⚠️ [对比监控] 直连: {d_res[0]:.1f}ms | 专线: [超时/异常] | 提示: 请检查核心进程")
+        else:
+            print(f"⚠️ [对比监控] 直连: [未连通] | 专线: [未连通] | 提示: 请检查本地网络")
+
+        sys.stdout.flush()
+        time.sleep(interval)
+
+if __name__ == "__main__":
+    port = 2081
+    loop_mode = False
+    loop_interval = 10
+
+    args = sys.argv[1:]
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--loop":
+            loop_mode = True
+            if idx + 1 < len(args) and args[idx+1].isdigit():
+                loop_interval = int(args[idx+1])
+                idx += 1
+        elif arg.isdigit():
+            port = int(arg)
+        idx += 1
+
+    if loop_mode:
+        run_loop_monitor(port, loop_interval)
+        sys.exit(0)
+
+    # 单次测速模式
     print(f"[*] 目标游戏服: {TARGET_IP}:{TARGET_PORT} (Firestorm 世界服)")
     print("--------------------------------------------------")
 
