@@ -1,0 +1,18 @@
+# 批处理文件：必须是 CRLF 行尾 + GBK(cp936) 编码，且不要 chcp
+#
+# 原因（踩过的坑，别改）：
+#  1) LF-only 的 .cmd 会让 cmd.exe 解析错位 —— 会出现
+#     "The filename, directory name, or volume label syntax is incorrect."
+#     以及把注释后半截当命令执行。
+#  2) 文件存成 UTF-8 再 chcp 65001 更糟：cmd 中途换代码页会让它按旧代码页
+#     算出的字节偏移继续读，注释里的中文会被截断成 "'引号' 不是内部或外部命令"。
+#     实测：同一份内容 UTF-8+chcp65001 会坏，GBK 不 chcp 完全正常。
+#  3) 所以：这些文件按 GBK 提交、按 GBK 编辑，不要加 chcp，也不要让编辑器
+#     "另存为 UTF-8"。
+#
+# "-text" 关掉 git 的行尾/编码归一化，保证检出后仍是提交时的字节。
+*.cmd -text
+*.bat -text
+
+# 含明文节点凭据，禁止提交
+Sing-box/config.json -text

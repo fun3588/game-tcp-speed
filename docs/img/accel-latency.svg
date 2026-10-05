@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 340" width="680" height="340" role="img" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <title>加速前后延迟对比</title>
+  <desc>分组柱状图。加速前直连：最低 404 毫秒、平均 577 毫秒、最差 1483 毫秒、抖动 344 毫秒。加速后隧道：最低 385 毫秒、平均 485 毫秒、最差 904 毫秒、抖动 139 毫秒。最低值几乎不变，平均改善 16%，最差改善 39%，抖动改善 60%。</desc>
+
+  <rect width="680" height="340" fill="#FFFFFF"/>
+
+  <rect x="80" y="16" width="10" height="10" rx="2" fill="#E24B4A"/>
+  <text x="96" y="25" font-size="12" fill="#5F5E5A">加速前（直连）</text>
+  <rect x="220" y="16" width="10" height="10" rx="2" fill="#1D9E75"/>
+  <text x="236" y="25" font-size="12" fill="#5F5E5A">加速后（隧道）</text>
+  <text x="80" y="44" font-size="11" fill="#888780">毫秒 (ms)</text>
+
+  <line x1="80" y1="56" x2="640" y2="56" stroke="#EBE9E4" stroke-width="0.5"/>
+  <line x1="80" y1="113.5" x2="640" y2="113.5" stroke="#EBE9E4" stroke-width="0.5"/>
+  <line x1="80" y1="171" x2="640" y2="171" stroke="#EBE9E4" stroke-width="0.5"/>
+  <line x1="80" y1="228.5" x2="640" y2="228.5" stroke="#EBE9E4" stroke-width="0.5"/>
+  <line x1="80" y1="286" x2="640" y2="286" stroke="#B4B2A9" stroke-width="1"/>
+
+  <text x="72" y="56" text-anchor="end" dominant-baseline="central" font-size="11" fill="#888780">1600</text>
+  <text x="72" y="113.5" text-anchor="end" dominant-baseline="central" font-size="11" fill="#888780">1200</text>
+  <text x="72" y="171" text-anchor="end" dominant-baseline="central" font-size="11" fill="#888780">800</text>
+  <text x="72" y="228.5" text-anchor="end" dominant-baseline="central" font-size="11" fill="#888780">400</text>
+  <text x="72" y="286" text-anchor="end" dominant-baseline="central" font-size="11" fill="#888780">0</text>
+
+  <rect x="102" y="227.94" width="40" height="58.06" rx="3" fill="#E24B4A"/>
+  <rect x="158" y="230.66" width="40" height="55.34" rx="3" fill="#1D9E75"/>
+  <text x="122" y="221.94" text-anchor="middle" font-size="11" fill="#5F5E5A">404</text>
+  <text x="178" y="224.66" text-anchor="middle" font-size="11" fill="#5F5E5A">385</text>
+
+  <rect x="242" y="203.06" width="40" height="82.94" rx="3" fill="#E24B4A"/>
+  <rect x="298" y="216.28" width="40" height="69.72" rx="3" fill="#1D9E75"/>
+  <text x="262" y="197.06" text-anchor="middle" font-size="11" fill="#5F5E5A">577</text>
+  <text x="318" y="210.28" text-anchor="middle" font-size="11" fill="#5F5E5A">485</text>
+
+  <rect x="382" y="72.82" width="40" height="213.18" rx="3" fill="#E24B4A"/>
+  <rect x="438" y="156.05" width="40" height="129.95" rx="3" fill="#1D9E75"/>
+  <text x="402" y="66.82" text-anchor="middle" font-size="11" fill="#5F5E5A">1483</text>
+  <text x="458" y="150.05" text-anchor="middle" font-size="11" fill="#5F5E5A">904</text>
+
+  <rect x="522" y="236.55" width="40" height="49.45" rx="3" fill="#E24B4A"/>
+  <rect x="578" y="266.02" width="40" height="19.98" rx="3" fill="#1D9E75"/>
+  <text x="542" y="230.55" text-anchor="middle" font-size="11" fill="#5F5E5A">344</text>
+  <text x="598" y="260.02" text-anchor="middle" font-size="11" fill="#5F5E5A">139</text>
+
+  <text x="150" y="304" text-anchor="middle" font-size="12" fill="#2C2C2A">最低</text>
+  <text x="290" y="304" text-anchor="middle" font-size="12" fill="#2C2C2A">平均</text>
+  <text x="430" y="304" text-anchor="middle" font-size="12" fill="#2C2C2A">最差</text>
+  <text x="570" y="304" text-anchor="middle" font-size="12" fill="#2C2C2A">抖动 σ</text>
+
+  <text x="150" y="322" text-anchor="middle" font-size="11" fill="#5F5E5A">-5%</text>
+  <text x="290" y="322" text-anchor="middle" font-size="11" fill="#0F6E56">-16%</text>
+  <text x="430" y="322" text-anchor="middle" font-size="11" fill="#0F6E56">-39%</text>
+  <text x="570" y="322" text-anchor="middle" font-size="11" fill="#0F6E56">-60%</text>
+</svg>

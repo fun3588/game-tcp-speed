@@ -296,14 +296,36 @@ def del_alias(ip):
 def cmd_status(_):
     LOG(f"目标: {TARGET_IP}  端口: {PORTS}")
     LOG(f"代理: SOCKS5 {SOCKS_HOST}:{SOCKS_PORT}")
-    if alias_present(TARGET_IP):
-        LOG(f"[ON ] 副 IP {TARGET_IP} 已挂在本机 —— 游戏流量会被中转")
-        rc, out = run(f"netsh interface ipv4 show addresses")
-        for line in out.splitlines():
-            if TARGET_IP in line or "接口" in line:
-                LOG("     " + line.strip())
-    else:
+    if not alias_present(TARGET_IP):
         LOG(f"[OFF] 副 IP {TARGET_IP} 不在本机 —— 当前是直连")
+        return
+    LOG(f"[ON ] 副 IP {TARGET_IP} 已挂在本机 —— 游戏流量会被中转")
+
+    # netsh 的输出是按接口分段的：先出现 '接口 "xxx" 的配置'，后面跟着该接口的属性行。
+    # 我们只关心「哪一段里出现了目标 IP」，其余接口一概不打印（否则全是噪音），
+    # 同时也不必依赖任何本地化字符串的细节匹配。
+    rc, out = run("netsh interface ipv4 show addresses")
+    blocks, cur = [], None
+    for line in out.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("接口") and s.endswith("的配置"):
+            cur = [s, []]
+            blocks.append(cur)
+            continue
+        if cur is not None:
+            cur[1].append(s)
+
+    shown = False
+    for name, body in blocks:
+        if any(TARGET_IP in b for b in body):
+            shown = True
+            LOG("     " + name)
+            for b in body:
+                LOG("       " + b)
+    if not shown:                      # 地址挂上了但 netsh 没列出来（极少见）
+        LOG("     （netsh 未列出该地址，请手动核对）")
 
 
 def cmd_setup(_):

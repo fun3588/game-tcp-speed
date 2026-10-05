@@ -24,3 +24,22 @@ out/
 .idea/
 CMakeSettings.json
 *.user
+
+# 含节点凭据（密码 / uuid），绝对不要提交
+# 运行时产物带 profile 后缀，所以用通配：config.runtime.backup.json / runtime.backup.json
+Sing-box/config.json
+Sing-box/config.runtime*.json
+Sing-box/runtime*.json
+Sing-box/singbox*.log
+Sing-box/_test-*.json
+py/firestorm_accel.log
+py/tray.log
+*.log
+
+# 面板改 config.json 前自动留的备份（含凭据）
+Sing-box/config.json.bak
+Sing-box/*.json.tmp
+
+# 注：*.exe 已被忽略，Sing-box/sing-box.exe 需 git add -f 才会纳入版本控制
+# 注：config.template.json 是**空白占位符**模板，没有凭据，要提交
+# 注：gui/ 下都是无凭据的代码，要提交
