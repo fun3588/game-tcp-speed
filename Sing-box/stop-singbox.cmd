@@ -1,25 +1,4 @@
 @echo off
-setlocal
-
-rem ÓÃ·¨:
-rem   stop-singbox.cmd          Í£Ö÷ÊµÀý£¨main£©
-rem   stop-singbox.cmd backup   Í£±¸ÊµÀý
-rem   stop-singbox.cmd all      Á½¸ö¶¼Í£
-
-set "PY=C:\Users\junjun\.workbuddy\binaries\python\versions\3.13.12\python.exe"
-if not exist "%PY%" set "PY=python"
-
-set "PROF=main"
-set "ARG=%~1"
-if /i "%ARG%"=="backup" set "PROF=backup"
-if /i "%ARG%"=="all" goto stop_all
-
-"%PY%" "%~dp0stop_singbox.py" --profile %PROF%
-goto done
-
-:stop_all
-"%PY%" "%~dp0stop_singbox.py" --all
-
-:done
-echo.
-pause
+chcp 65001 >nul
+taskkill /f /im sing-box.exe >nul 2>&1
+echo [OK] Sing-box æ ¸å¿ƒè¿›ç¨‹å·²åœæ­¢ã€‚
