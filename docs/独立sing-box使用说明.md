@@ -72,7 +72,7 @@ sing-box 报 `unexpected HTTP response status: 530`。
 | 实例 | 节点 | 完整 HTTPS 请求 p50 | 出口 IP |
 |---|---|---|---|
 | 主实例 | `qiniu-0001`（CF 隧道） | **1849 ms** | 154.41.93.160 |
-| 备实例 | `hy2-va1`（直连） | **686 ms** | 66.154.126.18 |
+| 备实例 | `hy2-va1`（直连） | **686 ms** | <Server-IP> |
 
 **Cloudflare 隧道比直连慢约 2.7 倍** —— 多了一跳 CF 边缘 + 隧道回源。
 隧道节点的价值不在低延迟，而在**换了一条独立链路**（不占直连 VPS 的账号流量、
@@ -86,13 +86,13 @@ sing-box 报 `unexpected HTTP response status: 530`。
 | 配置存放 | SQLite（`throne.db`） | 明文 `Sing-box\config.json` |
 | 本地端口 | `127.0.0.1:2080`（固定） | 两个实例，各两个**随机**端口 |
 | 控制接口 | 有（GUI） | clash_api（端口随机） |
-| 上游节点 | `hy2-hy2.va1.kkip.vip` | 4 个可选（2 CF 隧道 + 2 直连） |
+| 上游节点 | 专线节点 | 4 个可选（2 CF 隧道 + 2 直连） |
 
 **不共用的含义**：进程各自独立。Throne 退出、切节点、开 TUN、
 甚至卸载，都不影响独立实例；反过来也一样。加速器可以任选其中一个当出口。
 
 ⚠️ 唯一的耦合是**账号流量额度**：走直连节点（`hy2-va1` / `vl-reality-va1`）时
-和 Throne 连的是同一台服务器（`66.154.126.18`）的同一个账号，会一起消耗套餐流量。
+和 Throne 连的是同一台服务器（`<Server-IP>`）的同一个账号，会一起消耗套餐流量。
 **走两个 Cloudflare 隧道节点则不占这份额度**。
 
 ## 2. 节点参数从哪来的
@@ -109,9 +109,9 @@ sing-box 报 `unexpected HTTP response status: 530`。
 {
   "type": "hysteria2",
   "tag": "hy2-va1",
-  "server": "66.154.126.18",
+  "server": "your-server-ip.com",
   "server_port": 42468,
-  "password": "95012e97-e174-4ecf-8a88-a9c6dad2b513",
+  "password": "your-password",
   "tls": { "enabled": true, "alpn": ["h3"], "insecure": true,
            "server_name": "www.bing.com" }
 }
@@ -120,14 +120,14 @@ sing-box 报 `unexpected HTTP response status: 530`。
 > ⚠️ 这些是**凭据**，别把 `config.json` 传到公开仓库。
 > `config.runtime*.json` 同理会生成一份含凭据的副本，都已进 `.gitignore`。
 
-同一台服务器 `66.154.126.18` 上还开了几个别的协议，可以互换（都在 config.json 里备用）：
+同一台专线服务器上还开了几个别的协议，可以互换（都在 config.json 里备用）：
 
 | 协议 | 端口 | 说明 |
 |---|---|---|
 | hysteria2 | 42468 | UDP/QUIC 封装，自带前向纠错。**实测最稳，用这个** |
 | vless + reality | 30752 | 纯 TCP。注意是 TCP over TCP，跨境丢包时两层重传叠加，实测抖动翻倍 |
 | tuic v5 | 15107 | UDP/QUIC |
-| anytls | — | 另一台机器（203.88.120.102） |
+| anytls | — | 备用专线 |
 
 ### 2.1 Cloudflare 隧道节点（WebSocket over TLS）
 
@@ -135,8 +135,8 @@ sing-box 报 `unexpected HTTP response status: 530`。
 
 | tag | 域名 | path | uuid | TLS |
 |---|---|---|---|---|
-| `qiniu-0709` | `controller-julie-alert-shakespeare.trycloudflare.com` | `/vless` | `c993eed9-…-667eec18e30c` | 校验证书 |
-| `qiniu-0001` | `seekers-extraordinary-suppliers-goals.trycloudflare.com` | `/mywspath` | `d3b07384-…-2831f237f37a` | `insecure` |
+| `qiniu-0709` | `sample-backup.trycloudflare.com` | `/vless` | `c993eed9-xxxx-xxxx-xxxx-xxxxxxxxxxxx` | 校验证书 |
+| `qiniu-0001` | `sample-primary.trycloudflare.com` | `/mywspath` | `d3b07384-xxxx-xxxx-xxxx-xxxxxxxxxxxx` | `insecure` |
 
 sing-box 里对应写法（关键三点）：
 
@@ -144,12 +144,12 @@ sing-box 里对应写法（关键三点）：
 {
   "type": "vless",
   "tag": "qiniu-0001",
-  "server": "seekers-extraordinary-suppliers-goals.trycloudflare.com",
+  "server": "sample-primary.trycloudflare.com",
   "server_port": 443,
-  "uuid": "d3b07384-d113-42a6-a51f-2831f237f37a",
+  "uuid": "00000000-0000-0000-0000-000000000000",
   "tls": {
     "enabled": true,
-    "server_name": "seekers-extraordinary-suppliers-goals.trycloudflare.com",
+    "server_name": "sample-primary.trycloudflare.com",
     "alpn": ["http/1.1"],          // ← WS 必须走 h1，别给 h2
     "insecure": true,              // ← 原链接带 allowInsecure=true
     "utls": { "enabled": true, "fingerprint": "chrome" }
@@ -157,7 +157,7 @@ sing-box 里对应写法（关键三点）：
   "transport": {                   // ← WS 传输层
     "type": "ws",
     "path": "/mywspath",
-    "headers": { "Host": "seekers-extraordinary-suppliers-goals.trycloudflare.com" }
+    "headers": { "Host": "sample-primary.trycloudflare.com" }
   }
 }
 ```
@@ -356,11 +356,11 @@ PUT  /proxies/node {"name":"qiniu-0001"}        → now = qiniu-0001
 | 实例 | 节点 | 出口 IP |
 |---|---|---|
 | 主实例 | `qiniu-0001`（CF 隧道） | `154.41.93.160` |
-| 备实例 | `hy2-va1`（直连） | `66.154.126.18` |
+| 备实例 | `hy2-va1`（直连） | `<Server-IP>` |
 
 端口随机化不影响链路本身 —— 重启换端口后出口 IP 不变。
 
-> 注意 Cloudflare 隧道的出口 IP 是 CF 那边的地址，**不是** `66.154.126.18`。
+> 注意 Cloudflare 隧道的出口 IP 是 CF 那边的地址，**不是** `<Server-IP>`。
 > 这是正常的，也是它"不占直连 VPS 流量额度"的原因。
 
 ## 5. 踩过的坑

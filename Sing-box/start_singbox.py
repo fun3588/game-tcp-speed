@@ -271,7 +271,7 @@ def profile_outbounds(cfg, profile):
 
     注意是按 tag 过滤（不是遍历 config 的顶层键，早期就栽在这儿：
     list(cfg) 拿到的是 log/inbounds/outbounds/... 这种键名）。"""
-    available = [o.get("tag") for o in cfg.get("outbounds", [])]
+    available = all_outbound_tags(cfg)
     if profile == "main":
         # 主实例：走 Cloudflare 隧道（两个节点互为热备），老节点留作兜底
         want = ["qiniu-0001", "qiniu-0709", "hy2-va1", "vl-reality-va1"]

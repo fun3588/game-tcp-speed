@@ -54,7 +54,7 @@ flowchart TD
     end
 
     subgraph UplinkTunnel["跨国加密专线链路"]
-        HY2["极速专线: Hysteria 2\n(66.154.126.18 直连 / UDP QUIC 暴力抗丢包)"]
+        HY2["极速专线: Hysteria 2\n(独立 VPS 直连 / UDP QUIC 暴力抗丢包)"]
         CF_Pri["主订阅专线: VLESS + WS\n(Cloudflare Anycast 穿透)"]
         CF_Bak["备订阅专线: VLESS + WS\n(Cloudflare 穿透冗余)"]
     end

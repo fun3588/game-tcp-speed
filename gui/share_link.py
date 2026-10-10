@@ -416,6 +416,77 @@ def _parse_vmess(url):
     return out, warn
 
 
+def _parse_tuic(url):
+    warn = []
+    out = {"type": "tuic", "tag": ""}
+    if not url.hostname:
+        raise ValueError("tuic 链接里没有服务器地址")
+    uuid = urllib.parse.unquote(url.username or "")
+    password = urllib.parse.unquote(url.password or url.username or "")
+    if not uuid:
+        raise ValueError("tuic 链接里没有 uuid")
+
+    out["server"] = url.hostname
+    out["server_port"] = url.port or 443
+    out["uuid"] = uuid
+    out["password"] = password
+
+    q = _q(url)
+    cc = q.get("congestion_control") or q.get("congestion") or "bbr"
+    out["congestion_control"] = cc
+    udp_mode = q.get("udp_relay_mode") or "native"
+    out["udp_relay_mode"] = udp_mode
+
+    sni = q.get("sni") or q.get("peer") or ""
+    tls = {"enabled": True}
+    if sni:
+        tls["server_name"] = sni
+    a = _alpn(q.get("alpn"), fallback=["h3"])
+    if a:
+        tls["alpn"] = a
+    if _truthy(q.get("insecure") or q.get("allowInsecure")):
+        tls["insecure"] = True
+    out["tls"] = tls
+    return out, warn
+
+
+def _parse_anytls(url):
+    warn = []
+    out = {"type": "anytls", "tag": ""}
+    if not url.hostname:
+        raise ValueError("anytls 链接里没有服务器地址")
+    password = urllib.parse.unquote(url.password or url.username or "")
+    if not password:
+        raise ValueError("anytls 链接里没有密码")
+
+    out["server"] = url.hostname
+    out["server_port"] = url.port or 443
+    out["password"] = password
+
+    q = _q(url)
+    if q.get("idle_session_check_interval"):
+        out["idle_session_check_interval"] = q["idle_session_check_interval"]
+    if q.get("idle_session_timeout"):
+        out["idle_session_timeout"] = q["idle_session_timeout"]
+    if q.get("min_idle_session"):
+        try:
+            out["min_idle_session"] = int(q["min_idle_session"])
+        except ValueError:
+            pass
+
+    sni = q.get("sni") or q.get("peer") or ""
+    tls = {"enabled": True}
+    if sni:
+        tls["server_name"] = sni
+    if _truthy(q.get("insecure") or q.get("allowInsecure")):
+        tls["insecure"] = True
+    a = _alpn(q.get("alpn"))
+    if a:
+        tls["alpn"] = a
+    out["tls"] = tls
+    return out, warn
+
+
 # ----------------------------- 入口 -----------------------------
 
 _SCHEMES = {
@@ -425,6 +496,8 @@ _SCHEMES = {
     "trojan": _parse_trojan,
     "ss": _parse_ss,
     "vmess": _parse_vmess,
+    "tuic": _parse_tuic,
+    "anytls": _parse_anytls,
 }
 
 
@@ -536,6 +609,39 @@ def link_for(obj):
                 q.append(("host", h))
         user = obj.get("password", "")
         scheme = "trojan"
+
+    elif t == "tuic":
+        if tls.get("server_name"):
+            q.append(("sni", tls["server_name"]))
+        if tls.get("insecure"):
+            q.append(("allowInsecure", "true"))
+        if obj.get("congestion_control"):
+            q.append(("congestion_control", obj["congestion_control"]))
+        if obj.get("udp_relay_mode"):
+            q.append(("udp_relay_mode", obj["udp_relay_mode"]))
+        if tls.get("alpn"):
+            q.append(("alpn", ",".join(tls["alpn"])))
+        uuid = obj.get("uuid", "")
+        pwd = obj.get("password", uuid)
+        scheme = "tuic"
+        userinfo = f"{urllib.parse.quote(uuid, safe='')}:{urllib.parse.quote(pwd, safe='')}"
+        qs = urllib.parse.urlencode(q)
+        return (f"{scheme}://{userinfo}"
+                f"@{obj.get('server')}:{obj.get('server_port')}?{qs}#{tag}")
+
+    elif t == "anytls":
+        if tls.get("server_name"):
+            q.append(("sni", tls["server_name"]))
+        if tls.get("insecure"):
+            q.append(("allowInsecure", "true"))
+        if obj.get("idle_session_check_interval"):
+            q.append(("idle_session_check_interval", obj["idle_session_check_interval"]))
+        if obj.get("idle_session_timeout"):
+            q.append(("idle_session_timeout", obj["idle_session_timeout"]))
+        if obj.get("min_idle_session") is not None:
+            q.append(("min_idle_session", str(obj["min_idle_session"])))
+        user = obj.get("password", "")
+        scheme = "anytls"
 
     else:
         return None

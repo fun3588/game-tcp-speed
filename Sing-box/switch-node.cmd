@@ -1,17 +1,18 @@
 @echo off
+chcp 65001 >nul
 setlocal
 
 rem ============================================================
-rem  ÈÈÇÐ»» sing-box µ±Ç°½Úµã£¨²»¶ÏÏß£©
+rem  åˆ‡æ¢ sing-box å½“å‰å‡ºç«™èŠ‚ç‚¹ï¼ˆåœ¨çº¿çƒ­åˆ‡æ¢ï¼‰
 rem
-rem  ÓÃ·¨:
-rem    switch-node.cmd 0001            Ö÷ÊµÀýÇÐµ½ ÆßÅ£0001
-rem    switch-node.cmd 0709            Ö÷ÊµÀýÇÐµ½ ÆßÅ£0709
-rem    switch-node.cmd hy2             ÇÐµ½ Hysteria 2 Ö±Á¬
-rem    switch-node.cmd vless           ÇÐµ½ VLESS Reality Ö±Á¬
-rem    switch-node.cmd 0001 backup     ¶Ô±¸ÊµÀý²Ù×÷
+rem  ç”¨æ³•:
+rem    switch-node.cmd 0001            åˆ‡æ¢ä¸ºèŠ‚ç‚¹ 0001
+rem    switch-node.cmd 0709            åˆ‡æ¢ä¸ºèŠ‚ç‚¹ 0709
+rem    switch-node.cmd hy2             åˆ‡æ¢ä¸º Hysteria 2 ç›´è¿žä¸“çº¿
+rem    switch-node.cmd vless           åˆ‡æ¢ä¸º VLESS Reality ä¸“çº¿
+rem    switch-node.cmd 0001 backup     ä½œç”¨äºŽ backup å¤‡ç”¨å®žä¾‹
 rem
-rem  ²»´ø²ÎÊý = ´òÓ¡ÓÃ·¨ºÍµ±Ç°×´Ì¬
+rem  ä¸å¸¦å‚æ•° = æ‰“å°ç”¨æ³•åŠå½“å‰çŠ¶æ€
 rem ============================================================
 
 set "PY=C:\Users\junjun\.workbuddy\binaries\python\versions\3.13.12\python.exe"
@@ -22,14 +23,11 @@ if /i "%PROF%"=="backup" goto prof_ok
 set "PROF=main"
 :prof_ok
 
-rem ¿ØÖÆ½Ó¿Ú¶Ë¿ÚÊÇËæ»úµÄ£¬´Ó runtime ÎÄ¼þÈ¡
-rem ×¢Òâ: usebackq ÀïÃüÁîÁ½¶ËµÄ "" ²»ÄÜÊ¡ ¡ª¡ª cmd »á°þµô×îÍâ²ãÒýºÅ£¬
-rem       Ö»Ð´ "%PY%" "..." »á±ä³ÉÂãÂ·¾¶µ¼ÖÂ "ÎÄ¼þÃûÓï·¨²»ÕýÈ·"¡£
 set "CLASH_PORT="
 for /f "usebackq delims=" %%i in (`""%PY%" "%~dp0portof.py" clash "" %PROF%"`) do set "CLASH_PORT=%%i"
 if "%CLASH_PORT%"=="" (
-  echo [X] ¶Á²»µ½ %PROF% ÊµÀýµÄ¿ØÖÆ¶Ë¿Ú£¬ËüÊÇ²»ÊÇÃ»ÔÚÔËÐÐ£¿
-  echo     Æô¶¯: run-singbox.cmd %PROF%
+  echo [X] æ‰¾ä¸åˆ° %PROF% å®žä¾‹çš„æŽ§åˆ¶ç«¯å£ï¼Œè¯·ç¡®è®¤å®žä¾‹æ˜¯å¦å·²è¿è¡Œã€‚
+  echo     å¯åŠ¨å‘½ä»¤: run-singbox.cmd %PROF%
   echo.
   pause
   exit /b 1
@@ -42,14 +40,14 @@ if /i "%~1"=="hy2"   set NODE=hy2-va1
 if /i "%~1"=="vless" set NODE=vl-reality-va1
 
 if "%NODE%"=="" (
-  echo ÓÃ·¨: switch-node.cmd  0709 ^| 0001 ^| hy2 ^| vless   [main^|backup]
+  echo ç”¨æ³•: switch-node.cmd  0709 ^| 0001 ^| hy2 ^| vless   [main^|backup]
   echo.
-  echo   0709  = ÆßÅ£ 0709 ÐÂ¼ÓÆÂ  ^(Cloudflare ËíµÀ^)
-  echo   0001  = ÆßÅ£ 0001 ÐÂ¼ÓÆÂ  ^(Cloudflare ËíµÀ^)
-  echo   hy2   = Hysteria 2 Ö±Á¬ 66.154.126.18 ^(UDP/QUIC£¬¿¹¶ª°ü£¬Êµ²â×îÎÈ^)
-  echo   vless = VLESS Reality Ö±Á¬ 66.154.126.18 ^(TCP£¬Êµ²â¶¶¶¯Æ«´ó^)
+  echo   0709  = å¤‡ç”¨ 0709 ä¸“çº¿   ^(Cloudflare ç©¿é€^)
+  echo   0001  = ä¸»ç”¨ 0001 ä¸“çº¿   ^(Cloudflare ç©¿é€^)
+  echo   hy2   = Hysteria 2 æžé€Ÿä¸“çº¿ ^(UDP/QUIC æŠ—ä¸¢åŒ…^)
+  echo   vless = VLESS Reality ä¸“çº¿  ^(TCP ç›´è¿ž^)
   echo.
-  echo µ±Ç° %PROF% ÊµÀý×´Ì¬£¨¿ØÖÆ½Ó¿Ú 127.0.0.1:%CLASH_PORT%£©:
+  echo å½“å‰ %PROF% å®žä¾‹çŠ¶æ€ (æŽ§åˆ¶æŽ¥å£ 127.0.0.1:%CLASH_PORT%):
   curl -s "%API%"
   echo.
   exit /b 1
@@ -57,12 +55,12 @@ if "%NODE%"=="" (
 
 curl -s -X PUT "%API%" -H "Content-Type: application/json" -d "{\"name\":\"%NODE%\"}" >nul
 if errorlevel 1 (
-  echo [X] µ÷ÓÃÊ§°Ü£¬%PROF% ÊµÀýÊÇ·ñÔÚÔËÐÐ£¿^(¿ØÖÆ½Ó¿Ú http://127.0.0.1:%CLASH_PORT%^)
+  echo [X] åˆ‡æ¢å¤±è´¥ï¼Œè¯·ç¡®è®¤ %PROF% å®žä¾‹æ˜¯å¦æ­£åœ¨è¿è¡Œ (æŽ§åˆ¶æŽ¥å£ http://127.0.0.1:%CLASH_PORT%)
   exit /b 1
 )
 
-echo ÒÑÇÐ»» %PROF% ÊµÀýµ½: %NODE%
+echo å·²æˆåŠŸåˆ‡æ¢ %PROF% å®žä¾‹èŠ‚ç‚¹ä¸º: %NODE%
 echo.
-echo µ±Ç°×´Ì¬:
+echo å½“å‰çŠ¶æ€:
 curl -s "%API%"
 echo.

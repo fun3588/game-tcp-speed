@@ -853,7 +853,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblSubPri = CreateWindowW(L"STATIC", L"主订阅:", WS_CHILD | WS_VISIBLE, 28, y + 28, 55, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"https://019fbc43343c7c779211a0aaefedbd46.ap-southeast-1.c9b2d4.cloud/sub?token=3588", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 25, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
+        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 25, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
         SendMessageW(g_hEditSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         HWND hBtnFetchPri = CreateWindowW(L"BUTTON", L"拉取主订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 410, y + 23, 110, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_PRI, g_hInstance, NULL);
@@ -863,7 +863,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblSubBak = CreateWindowW(L"STATIC", L"备订阅:", WS_CHILD | WS_VISIBLE, 28, y + 65, 55, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblSubBak, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditSubBak = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"https://01a048f5ac8b7ea6b16346f1e8a5549a.ap-southeast-4.a8g1v3.xyz/sub?token=3588", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 62, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_BAK, g_hInstance, NULL);
+        g_hEditSubBak = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 62, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_BAK, g_hInstance, NULL);
         SendMessageW(g_hEditSubBak, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         HWND hBtnFetchBak = CreateWindowW(L"BUTTON", L"拉取备订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 410, y + 60, 110, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_BAK, g_hInstance, NULL);

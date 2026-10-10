@@ -32,6 +32,8 @@ Sing-box/config.runtime*.json
 Sing-box/runtime*.json
 Sing-box/singbox*.log
 Sing-box/_test-*.json
+Sing-box/test_*.json
+Sing-box/trace_*.json
 py/firestorm_accel.log
 py/tray.log
 *.log

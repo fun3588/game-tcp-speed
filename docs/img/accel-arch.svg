@@ -44,7 +44,7 @@
 
   <rect x="210" y="328" width="260" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
   <text x="340" y="348" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">代理节点（欧服）</text>
-  <text x="340" y="366" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">66.154.126.18 · 同一账号，共享流量</text>
+  <text x="340" y="366" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">独立代理专线 · 共享流量</text>
 
   <path d="M340 384 L340 418" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#ar-gray)"/>
 
