@@ -311,6 +311,18 @@ static void ReloadNodeList() {
     SendMessageW(g_hComboNodes, CB_SETCURSEL, curSel, 0);
 }
 
+static void EnableDebugPrivilege() {
+    HANDLE hToken;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+        TOKEN_PRIVILEGES tp;
+        tp.PrivilegeCount = 1;
+        LookupPrivilegeValueW(NULL, SE_DEBUG_NAME, &tp.Privileges[0].Luid);
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
+        CloseHandle(hToken);
+    }
+}
+
 // 注入指定 PID
 static BOOL InjectDllByPid(DWORD pid) {
     if (pid == 0) return FALSE;
@@ -329,10 +341,13 @@ static BOOL InjectDllByPid(DWORD pid) {
         return FALSE;
     }
 
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    HANDLE hProcess = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, FALSE, pid);
+    if (!hProcess) {
+        hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    }
     if (!hProcess) {
         wchar_t err[128];
-        _snwprintf(err, sizeof(err)/sizeof(wchar_t), L"无法打开 PID %lu，请尝试以管理员身份运行本程序！", pid);
+        _snwprintf(err, sizeof(err)/sizeof(wchar_t), L"无法打开 PID %lu，请确保已以管理员身份运行本程序！", pid);
         AppendLog(err);
         return FALSE;
     }
@@ -375,15 +390,13 @@ static BOOL InjectDllByPid(DWORD pid) {
 
     g_InjectedPids.insert(pid);
     wchar_t msg[128];
-    _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"√ 成功注入加速模块至进程 (PID: %lu)！", pid);
+    _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"√ 成功注入加速模块至魔兽进程 (PID: %lu)！", pid);
     AppendLog(msg);
     return TRUE;
 }
 
-// 根据进程名查找并注入所有匹配的游戏进程
+// 根据进程名查找并注入所有匹配的游戏进程 (全自动智能匹配)
 static int InjectMatchingProcesses(const wchar_t* targetExe) {
-    if (!targetExe || wcslen(targetExe) == 0) return 0;
-
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return 0;
 
@@ -392,12 +405,25 @@ static int InjectMatchingProcesses(const wchar_t* targetExe) {
 
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
-            bool match = (_wcsicmp(pe.szExeFile, targetExe) == 0);
-            if (!match && wcsstr(pe.szExeFile, L"Firestorm") != NULL && wcsstr(targetExe, L"Firestorm") != NULL) {
-                if (_wcsicmp(pe.szExeFile, L"FirestormLauncher.exe") != 0 && _wcsicmp(pe.szExeFile, L"FirestormAgent.exe") != 0) {
-                    match = true;
+            bool match = false;
+            if (targetExe && wcslen(targetExe) > 0 && _wcsicmp(pe.szExeFile, targetExe) == 0) {
+                match = true;
+            } else {
+                wchar_t lowerName[MAX_PATH];
+                wcsncpy(lowerName, pe.szExeFile, MAX_PATH);
+                for (int i = 0; lowerName[i]; i++) lowerName[i] = towlower(lowerName[i]);
+
+                // 排除登录器与更新代理
+                if (wcsstr(lowerName, L"launcher") == NULL && 
+                    wcsstr(lowerName, L"agent") == NULL && 
+                    wcsstr(lowerName, L"update") == NULL) {
+                    // 智能识别 WoW_NoNoNo.exe, Wow.exe, Firestorm.exe 等一切魔兽世界主进程
+                    if (wcsstr(lowerName, L"wow") != NULL || wcsstr(lowerName, L"firestorm") != NULL) {
+                        match = true;
+                    }
                 }
             }
+
             if (match) {
                 if (g_InjectedPids.find(pe.th32ProcessID) == g_InjectedPids.end()) {
                     if (InjectDllByPid(pe.th32ProcessID)) {
@@ -868,7 +894,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblPort = CreateWindowW(L"STATIC", L"本地端口:", WS_CHILD | WS_VISIBLE, 28, y + 56, 65, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblPort, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditPort = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"2081", WS_CHILD | WS_VISIBLE | ES_NUMBER, 95, y + 54, 55, 22, hWnd, (HMENU)ID_EDIT_PORT, g_hInstance, NULL);
+        g_hEditPort = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"57565", WS_CHILD | WS_VISIBLE | ES_NUMBER, 95, y + 54, 55, 22, hWnd, (HMENU)ID_EDIT_PORT, g_hInstance, NULL);
         SendMessageW(g_hEditPort, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         g_hLabelSbStatus = CreateWindowW(L"STATIC", L"Sing-box: 未运行", WS_CHILD | WS_VISIBLE, 160, y + 56, 135, 20, hWnd, (HMENU)ID_LABEL_SB_STATUS, g_hInstance, NULL);
@@ -892,7 +918,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblTarget = CreateWindowW(L"STATIC", L"目标游戏进程名:", WS_CHILD | WS_VISIBLE, 30, y + 28, 100, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblTarget, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW 11.2.5 - Firestorm.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 135, y + 25, 205, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
+        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW_NoNoNo.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 135, y + 25, 205, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
         SendMessageW(g_hEditTargetName, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         g_hBtnAutoInject = CreateWindowW(L"BUTTON", L"🚀 开启自动监控注入", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 350, y + 22, 170, 30, hWnd, (HMENU)ID_BTN_AUTO_INJECT, g_hInstance, NULL);
@@ -926,7 +952,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblSubPri = CreateWindowW(L"STATIC", L"主订阅:", WS_CHILD | WS_VISIBLE, 28, y + 28, 55, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 25, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
+        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"http://31.59.121.22:3589/sub?token=4a85e5a8bcd74aba2b097348b3fd031b", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 25, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
         SendMessageW(g_hEditSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         HWND hBtnFetchPri = CreateWindowW(L"BUTTON", L"拉取主订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 410, y + 23, 110, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_PRI, g_hInstance, NULL);
@@ -945,8 +971,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         // 初始化加载配置节点列表
         ReloadNodeList();
 
-        AppendLog(L"程序已就绪。主/备订阅管理已就绪。");
-        AppendLog(L"提示：Cloudflare 临时隧道会定期更换域名，如遇失效点击下方【拉取订阅】即可一键刷新！");
+        AppendLog(L"程序已就绪。专线加速与节点管理已加载。");
+
+        // 自动拉起 Sing-box 核心并开启自动监控注入
+        StartSingBox();
+        ToggleAutoInject();
         break;
     }
     case WM_COMMAND: {
@@ -1070,6 +1099,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     g_hInstance = hInstance;
+    EnableDebugPrivilege();
 
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
