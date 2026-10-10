@@ -4,6 +4,8 @@
 #include <ws2tcpip.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unordered_map>
+#include <mutex>
 #include "../minhook/include/MinHook.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -18,9 +20,28 @@ static DWORD g_lastConfigCheck = 0;
 // 原函数指针
 typedef int (WSAAPI* PFN_CONNECT)(SOCKET s, const sockaddr* name, int namelen);
 typedef int (WSAAPI* PFN_WSACONNECT)(SOCKET s, const sockaddr* name, int namelen, LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS);
+typedef int (WSAAPI* PFN_IOCTLSOCKET)(SOCKET s, long cmd, u_long* argp);
+typedef int (WSAAPI* PFN_WSAEVENTSELECT)(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents);
+typedef int (WSAAPI* PFN_WSAASYNCSELECT)(SOCKET s, HWND hWnd, u_int wMsg, long lEvent);
 
 static PFN_CONNECT pOriginalConnect = NULL;
 static PFN_WSACONNECT pOriginalWSAConnect = NULL;
+static PFN_IOCTLSOCKET pOriginalIoctlsocket = NULL;
+static PFN_WSAEVENTSELECT pOriginalWSAEventSelect = NULL;
+static PFN_WSAASYNCSELECT pOriginalWSAAsyncSelect = NULL;
+
+// 跟踪每个 Socket 的非阻塞状态
+struct SocketContext {
+    bool isNonBlocking;
+    WSAEVENT hEvent;
+    long networkEvents;
+    HWND hWnd;
+    u_int wMsg;
+    long asyncEvents;
+};
+
+static std::mutex g_SocketMutex;
+static std::unordered_map<SOCKET, SocketContext> g_SocketMap;
 
 // 线程内部重入标记
 static thread_local BOOL g_InHook = FALSE;
@@ -64,7 +85,7 @@ static void LoadConfig(HMODULE hModule) {
 
 static void RefreshConfigIfNeeded() {
     DWORD now = GetTickCount();
-    if (now - g_lastConfigCheck > 1000) { // 至少 1 秒检查一次
+    if (now - g_lastConfigCheck > 1000) {
         g_lastConfigCheck = now;
         unsigned short oldPort = g_ProxyPort;
         LoadConfig(NULL);
@@ -195,9 +216,26 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
         proxyAddr.sin_port = htons(g_ProxyPort);
         proxyAddr.sin_addr.s_addr = inet_addr(g_ProxyIp);
 
-        // 临时切换至阻塞模式完成 Socks5 握手
-        u_long nonBlocking = 0;
-        ioctlsocket(s, FIONBIO, &nonBlocking);
+        // 获取原 socket 是否配置为非阻塞
+        bool wasNonBlocking = false;
+        SocketContext ctx = { false, NULL, 0, NULL, 0, 0 };
+        {
+            std::lock_guard<std::mutex> lock(g_SocketMutex);
+            auto it = g_SocketMap.find(s);
+            if (it != g_SocketMap.end()) {
+                ctx = it->second;
+                wasNonBlocking = ctx.isNonBlocking || (ctx.hEvent != NULL) || (ctx.hWnd != NULL);
+            }
+        }
+
+        // 临时设置发送/接收超时（2秒），防止握手死等挂起游戏
+        DWORD timeout = 2500;
+        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+        setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+
+        // 临时切换至阻塞模式完成连接与 Socks5 握手
+        u_long blk = 0;
+        pOriginalIoctlsocket(s, FIONBIO, &blk);
 
         // 设置重入保护
         g_InHook = TRUE;
@@ -207,13 +245,42 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
         if (connectRes == 0) {
             // 连接本地代理成功，立刻执行 Socks5 握手
             if (DoSocks5Handshake(s, targetIp, targetPort)) {
-                WriteLog("[TCP 成功] 已成功打通 Socks5 隧道并连接目标: %s:%d", ipStr, portNum);
+                WriteLog("[TCP 成功] 已打通 Socks5 隧道并连接目标: %s:%d (恢复非阻塞模式: %s)", ipStr, portNum, wasNonBlocking ? "是" : "否");
+
+                // 清理超时设置
+                DWORD noTimeout = 0;
+                setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&noTimeout, sizeof(noTimeout));
+                setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&noTimeout, sizeof(noTimeout));
+
+                // 恢复为游戏期望的非阻塞模式与事件通知
+                if (wasNonBlocking) {
+                    u_long nonBlk = 1;
+                    pOriginalIoctlsocket(s, FIONBIO, &nonBlk);
+
+                    if (ctx.hEvent != NULL) {
+                        pOriginalWSAEventSelect(s, ctx.hEvent, ctx.networkEvents);
+                        // 触发已连接事件通知游戏主循环
+                        SetEvent(ctx.hEvent);
+                    }
+                    if (ctx.hWnd != NULL && ctx.wMsg != 0) {
+                        pOriginalWSAAsyncSelect(s, ctx.hWnd, ctx.wMsg, ctx.asyncEvents);
+                        PostMessageW(ctx.hWnd, ctx.wMsg, (WPARAM)s, WSAMAKESELECTREPLY(FD_CONNECT, 0));
+                    }
+                }
+
+                WSASetLastError(0);
                 return 0; // 返回成功骗过游戏
             } else {
                 WriteLog("[TCP 错误] Socks5 握手失败: %s:%d", ipStr, portNum);
             }
         } else {
             WriteLog("[TCP 错误] 连接本地代理 %s:%d 失败 (WSAGetLastError=%d)", g_ProxyIp, g_ProxyPort, WSAGetLastError());
+        }
+
+        // 即使失败也恢复状态
+        if (wasNonBlocking) {
+            u_long nonBlk = 1;
+            pOriginalIoctlsocket(s, FIONBIO, &nonBlk);
         }
 
         WSASetLastError(WSAECONNREFUSED);
@@ -233,6 +300,38 @@ int WSAAPI HookedWSAConnect(SOCKET s, const sockaddr* name, int namelen, LPWSABU
     return HandleRedirectConnect(s, name, namelen, TRUE, lpCallerData, lpCalleeData, lpSQOS, lpGQOS);
 }
 
+// Hook ioctlsocket 捕获游戏设置非阻塞
+int WSAAPI HookedIoctlsocket(SOCKET s, long cmd, u_long* argp) {
+    if (cmd == FIONBIO && argp) {
+        std::lock_guard<std::mutex> lock(g_SocketMutex);
+        g_SocketMap[s].isNonBlocking = (*argp != 0);
+    }
+    return pOriginalIoctlsocket(s, cmd, argp);
+}
+
+// Hook WSAEventSelect 捕获游戏事件通知绑定
+int WSAAPI HookedWSAEventSelect(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents) {
+    if (hEventObject != NULL) {
+        std::lock_guard<std::mutex> lock(g_SocketMutex);
+        g_SocketMap[s].isNonBlocking = true;
+        g_SocketMap[s].hEvent = hEventObject;
+        g_SocketMap[s].networkEvents = lNetworkEvents;
+    }
+    return pOriginalWSAEventSelect(s, hEventObject, lNetworkEvents);
+}
+
+// Hook WSAAsyncSelect 捕获消息窗口通知绑定
+int WSAAPI HookedWSAAsyncSelect(SOCKET s, HWND hWnd, u_int wMsg, long lEvent) {
+    if (hWnd != NULL) {
+        std::lock_guard<std::mutex> lock(g_SocketMutex);
+        g_SocketMap[s].isNonBlocking = true;
+        g_SocketMap[s].hWnd = hWnd;
+        g_SocketMap[s].wMsg = wMsg;
+        g_SocketMap[s].asyncEvents = lEvent;
+    }
+    return pOriginalWSAAsyncSelect(s, hWnd, wMsg, lEvent);
+}
+
 // DLL 入口点
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
@@ -243,8 +342,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (MH_Initialize() == MH_OK) {
             MH_CreateHookApi(L"ws2_32.dll", "connect", (LPVOID)&HookedConnect, (LPVOID*)&pOriginalConnect);
             MH_CreateHookApi(L"ws2_32.dll", "WSAConnect", (LPVOID)&HookedWSAConnect, (LPVOID*)&pOriginalWSAConnect);
+            MH_CreateHookApi(L"ws2_32.dll", "ioctlsocket", (LPVOID)&HookedIoctlsocket, (LPVOID*)&pOriginalIoctlsocket);
+            MH_CreateHookApi(L"ws2_32.dll", "WSAEventSelect", (LPVOID)&HookedWSAEventSelect, (LPVOID*)&pOriginalWSAEventSelect);
+            MH_CreateHookApi(L"ws2_32.dll", "WSAAsyncSelect", (LPVOID)&HookedWSAAsyncSelect, (LPVOID*)&pOriginalWSAAsyncSelect);
             MH_EnableHook(MH_ALL_HOOKS);
-            WriteLog("Winsock Hook 已成功激活！");
+            WriteLog("Winsock Hook (含非阻塞自动恢复与事件转发) 已成功激活！");
         } else {
             WriteLog("MinHook 初始化失败！");
         }
