@@ -395,7 +395,7 @@ static BOOL InjectDllByPid(DWORD pid) {
     return TRUE;
 }
 
-// 根据进程名查找并注入所有匹配的游戏进程 (全自动智能匹配)
+// 根据进程名查找并注入所有匹配的游戏进程 (精确定位 WoW 11.2.5 - Firestorm.exe)
 static int InjectMatchingProcesses(const wchar_t* targetExe) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return 0;
@@ -406,21 +406,13 @@ static int InjectMatchingProcesses(const wchar_t* targetExe) {
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
             bool match = false;
-            if (targetExe && wcslen(targetExe) > 0 && _wcsicmp(pe.szExeFile, targetExe) == 0) {
-                match = true;
+            if (targetExe && wcslen(targetExe) > 0) {
+                if (_wcsicmp(pe.szExeFile, targetExe) == 0) {
+                    match = true;
+                }
             } else {
-                wchar_t lowerName[MAX_PATH];
-                wcsncpy(lowerName, pe.szExeFile, MAX_PATH);
-                for (int i = 0; lowerName[i]; i++) lowerName[i] = towlower(lowerName[i]);
-
-                // 排除登录器与更新代理
-                if (wcsstr(lowerName, L"launcher") == NULL && 
-                    wcsstr(lowerName, L"agent") == NULL && 
-                    wcsstr(lowerName, L"update") == NULL) {
-                    // 智能识别 WoW_NoNoNo.exe, Wow.exe, Firestorm.exe 等一切魔兽世界主进程
-                    if (wcsstr(lowerName, L"wow") != NULL || wcsstr(lowerName, L"firestorm") != NULL) {
-                        match = true;
-                    }
+                if (_wcsicmp(pe.szExeFile, L"WoW 11.2.5 - Firestorm.exe") == 0) {
+                    match = true;
                 }
             }
 
@@ -918,7 +910,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblTarget = CreateWindowW(L"STATIC", L"目标游戏进程名:", WS_CHILD | WS_VISIBLE, 30, y + 28, 100, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblTarget, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW_NoNoNo.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 135, y + 25, 205, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
+        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW 11.2.5 - Firestorm.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 135, y + 25, 205, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
         SendMessageW(g_hEditTargetName, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         g_hBtnAutoInject = CreateWindowW(L"BUTTON", L"🚀 开启自动监控注入", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 350, y + 22, 170, 30, hWnd, (HMENU)ID_BTN_AUTO_INJECT, g_hInstance, NULL);
