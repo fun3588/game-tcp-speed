@@ -483,6 +483,23 @@ def _parse_anytls(url):
     a = _alpn(q.get("alpn"))
     if a:
         tls["alpn"] = a
+
+    sec = (q.get("security") or "").lower()
+    pbk = q.get("pbk") or ""
+    sid = q.get("sid") or ""
+    fp = q.get("fp") or ""
+    if sec == "reality" or pbk:
+        if not fp:
+            fp = "chrome"
+            warn.append("AnyTLS reality 节点未指定 fp，已默认补全 chrome")
+        tls["utls"] = {"enabled": True, "fingerprint": fp}
+        reality = {"enabled": True, "public_key": pbk}
+        if sid:
+            reality["short_id"] = sid
+        tls["reality"] = reality
+    elif fp:
+        tls["utls"] = {"enabled": True, "fingerprint": fp}
+
     out["tls"] = tls
     return out, warn
 
@@ -640,6 +657,15 @@ def link_for(obj):
             q.append(("idle_session_timeout", obj["idle_session_timeout"]))
         if obj.get("min_idle_session") is not None:
             q.append(("min_idle_session", str(obj["min_idle_session"])))
+        if tls.get("reality", {}).get("enabled"):
+            q.append(("security", "reality"))
+            real = tls["reality"]
+            if real.get("public_key"):
+                q.append(("pbk", real["public_key"]))
+            if real.get("short_id"):
+                q.append(("sid", real["short_id"]))
+            if tls.get("utls", {}).get("fingerprint"):
+                q.append(("fp", tls["utls"]["fingerprint"]))
         user = obj.get("password", "")
         scheme = "anytls"
 
