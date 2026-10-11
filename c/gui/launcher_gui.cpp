@@ -884,7 +884,10 @@ static int ProbeServer(const char* host, int port, int timeoutMs, double& outRtt
     addr.sin_family = AF_INET;
     addr.sin_port = htons((unsigned short)port);
 
-    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
+    unsigned long ip = inet_addr(host);
+    if (ip != INADDR_NONE) {
+        addr.sin_addr.s_addr = ip;
+    } else {
         struct hostent* he = gethostbyname(host);
         if (!he || !he->h_addr_list[0]) {
             closesocket(s);
@@ -1532,6 +1535,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     g_hInstance = hInstance;
     EnableDebugPrivilege();
 
+    // 初始化 Winsock
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_WIN95_CLASSES | ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES;
@@ -1568,5 +1575,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
+    WSACleanup();
     return (int)msg.wParam;
 }
