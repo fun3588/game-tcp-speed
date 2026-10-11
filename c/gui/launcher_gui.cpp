@@ -944,7 +944,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hLblSubPri = CreateWindowW(L"STATIC", L"主订阅:", WS_CHILD | WS_VISIBLE, 28, y + 28, 55, 20, hWnd, NULL, g_hInstance, NULL);
         SendMessageW(hLblSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"http://31.59.121.22:3589/sub?token=4a85e5a8bcd74aba2b097348b3fd031b", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 25, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
+        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"http://<SERVER_IP>:3589/sub?token=<YOUR_TOKEN>", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 25, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
         SendMessageW(g_hEditSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
         HWND hBtnFetchPri = CreateWindowW(L"BUTTON", L"拉取主订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 410, y + 23, 110, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_PRI, g_hInstance, NULL);
