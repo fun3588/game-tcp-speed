@@ -23,62 +23,116 @@
 
 #pragma comment(lib, "comctl32.lib")
 
-#define ID_BTN_BROWSE           1001
-#define ID_BTN_START_SB         1002
-#define ID_BTN_STOP_SB          1003
-#define ID_BTN_LAUNCH_GAME      1004
-#define ID_BTN_INJECT_NOW       1005
-#define ID_BTN_AUTO_INJECT      1006
-#define ID_BTN_EDIT_CONFIG      1007
-#define ID_BTN_APPLY_NODE       1008
-#define ID_BTN_INJECT_PID       1009
-#define ID_BTN_FETCH_SUB_PRI    1010
-#define ID_BTN_FETCH_SUB_BAK    1011
-#define ID_BTN_TEST_SPEED       1012
-#define ID_BTN_MONITOR          1013
+// 控件 ID 定义
+#define ID_TAB_MAIN             1000
 
-#define ID_EDIT_GAME_PATH       2001
-#define ID_EDIT_PORT            2002
-#define ID_EDIT_PID             2003
-#define ID_EDIT_LOG             2004
-#define ID_LABEL_SB_STATUS      2005
-#define ID_EDIT_TARGET_NAME     2006
-#define ID_COMBO_NODES          2007
-#define ID_EDIT_SUB_PRI         2008
-#define ID_EDIT_SUB_BAK         2009
+// Tab 1 控件
+#define ID_COMBO_NODES          1001
+#define ID_BTN_APPLY_NODE       1002
+#define ID_BTN_TEST_SPEED       1003
+#define ID_BTN_MONITOR          1004
+#define ID_EDIT_PORT            1005
+#define ID_BTN_START_SB         1006
+#define ID_BTN_STOP_SB          1007
+#define ID_BTN_EDIT_CONFIG      1008
+#define ID_LABEL_SB_STATUS      1009
+#define ID_EDIT_TARGET_NAME     1010
+#define ID_BTN_AUTO_INJECT      1011
+#define ID_BTN_INJECT_NOW       1012
+#define ID_EDIT_PID             1013
+#define ID_BTN_INJECT_PID       1014
+#define ID_EDIT_LOG             1015
+
+// Tab 2 控件 (服务器连通性探针)
+#define ID_LIST_PROBE           1101
+#define ID_BTN_PROBE_ALL        1102
+#define ID_BTN_PROBE_ADD        1103
+#define ID_BTN_PROBE_DEL        1104
+#define ID_EDIT_PROBE_NAME      1105
+#define ID_EDIT_PROBE_HOST      1106
+#define ID_EDIT_PROBE_PORT      1107
+#define ID_LABEL_PROBE_TIPS     1108
+
+// Tab 3 控件 (订阅与配置)
+#define ID_EDIT_SUB_PRI         1201
+#define ID_BTN_FETCH_SUB_PRI    1202
+#define ID_EDIT_SUB_BAK         1203
+#define ID_BTN_FETCH_SUB_BAK    1204
+#define ID_BTN_OPEN_DIR         1205
+#define ID_BTN_RELOAD_NODES     1206
 
 static HINSTANCE g_hInstance = NULL;
 static HWND g_hMainWnd = NULL;
-static HWND g_hEditGamePath = NULL;
+static HWND g_hTabCtrl = NULL;
+
+// 控件句柄
+static HWND g_hComboNodes = NULL;
 static HWND g_hEditPort = NULL;
+static HWND g_hLabelSbStatus = NULL;
+static HWND g_hBtnMonitor = NULL;
 static HWND g_hEditTargetName = NULL;
+static HWND g_hBtnAutoInject = NULL;
 static HWND g_hEditPid = NULL;
 static HWND g_hEditLog = NULL;
-static HWND g_hLabelSbStatus = NULL;
-static HWND g_hComboNodes = NULL;
-static HWND g_hBtnAutoInject = NULL;
-static HWND g_hBtnMonitor = NULL;
+
+static HWND g_hListProbe = NULL;
+static HWND g_hBtnProbeAll = NULL;
+static HWND g_hEditProbeName = NULL;
+static HWND g_hEditProbeHost = NULL;
+static HWND g_hEditProbePort = NULL;
+static HWND g_hLabelProbeTips = NULL;
+
 static HWND g_hEditSubPri = NULL;
 static HWND g_hEditSubBak = NULL;
-static HFONT g_hFont = NULL;
 
+// 字体与画刷
+static HFONT g_hFontNormal = NULL;
+static HFONT g_hFontBold = NULL;
+static HFONT g_hFontConsole = NULL;
+static HBRUSH g_hBrushBg = NULL;
+static HBRUSH g_hBrushDarkLog = NULL;
+
+// 分组管理各 Tab 控件
+static std::vector<HWND> g_Tab1Ctrls;
+static std::vector<HWND> g_Tab2Ctrls;
+static std::vector<HWND> g_Tab3Ctrls;
+
+// 进程与状态
 static PROCESS_INFORMATION g_SbProcInfo = { 0 };
-
-// 自动注入监听状态
 static bool g_bAutoInjecting = false;
 static HANDLE g_hAutoInjectThread = NULL;
 static std::set<DWORD> g_InjectedPids;
 
-// 10s 对比监控状态
 static bool g_bMonitoring = false;
 static HANDLE g_hMonitorThread = NULL;
-static HANDLE g_hMonitorProcess = NULL;
+
+static bool g_bProbing = false;
+static HANDLE g_hProbeThread = NULL;
+
+// 服务器探针目标结构体
+struct ProbeTarget {
+    std::wstring name;
+    std::string host;
+    int port;
+    std::wstring status;
+    double rtt;
+};
+
+static std::vector<ProbeTarget> g_ProbeTargets = {
+    { L"Firestorm 世界服务器 (TWW 11.2.5)", "141.95.207.63", 8285, L"待检测", -1.0 },
+    { L"Firestorm 战网认证登录网关", "141.95.207.63", 1119, L"待检测", -1.0 },
+    { L"Firestorm 经典认证网关", "141.95.207.63", 3724, L"待检测", -1.0 },
+    { L"Reality 伪装 SNI 节点 (iCloud)", "gateway.icloud.com", 443, L"待检测", -1.0 },
+    { L"当前 AnyTLS 专线节点", "31.59.121.22", 30927, L"待检测", -1.0 }
+};
+
+// ==================== 基础日志与路径操作 ====================
 
 static void AppendLog(const wchar_t* text) {
     if (!g_hEditLog) return;
     int len = GetWindowTextLengthW(g_hEditLog);
     SendMessageW(g_hEditLog, EM_SETSEL, len, len);
-    
+
     SYSTEMTIME st;
     GetLocalTime(&st);
     wchar_t buf[1024];
@@ -96,14 +150,8 @@ static void GetAppDir(wchar_t* outDir, int maxLen) {
 static void GetSingBoxPaths(wchar_t* exePath, wchar_t* cfgPath) {
     wchar_t appDir[MAX_PATH];
     GetAppDir(appDir, MAX_PATH);
-
     _snwprintf(exePath, MAX_PATH, L"%s\\..\\Sing-box\\sing-box.exe", appDir);
     _snwprintf(cfgPath, MAX_PATH, L"%s\\..\\Sing-box\\config.json", appDir);
-
-    if (GetFileAttributesW(exePath) == INVALID_FILE_ATTRIBUTES) {
-        _snwprintf(exePath, MAX_PATH, L"%s\\Sing-box\\sing-box.exe", appDir);
-        _snwprintf(cfgPath, MAX_PATH, L"%s\\Sing-box\\config.json", appDir);
-    }
 }
 
 static void SaveProxyConfig(const wchar_t* portStr) {
@@ -111,44 +159,40 @@ static void SaveProxyConfig(const wchar_t* portStr) {
     GetAppDir(appDir, MAX_PATH);
     wchar_t iniPath[MAX_PATH];
     _snwprintf(iniPath, MAX_PATH, L"%s\\proxy_config.ini", appDir);
-
-    WritePrivateProfileStringW(L"Proxy", L"Host", L"127.0.0.1", iniPath);
     WritePrivateProfileStringW(L"Proxy", L"Port", portStr, iniPath);
 }
 
-// 寻找一个当前系统未被占用的可用随机高位端口
-static unsigned short GetRandomAvailablePort() {
-    WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
-
+// 检查端口是否被占用
+static bool IsPortInUse(unsigned short port) {
     SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (s == INVALID_SOCKET) {
-        WSACleanup();
-        return 2081;
-    }
+    if (s == INVALID_SOCKET) return true;
 
     sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    addr.sin_port = 0; // 0 让操作系统从动态可用端口范围中分配一个空闲端口
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    unsigned short port = 2081;
-    if (bind(s, (sockaddr*)&addr, sizeof(addr)) == 0) {
-        int len = sizeof(addr);
-        if (getsockname(s, (sockaddr*)&addr, &len) == 0) {
-            port = ntohs(addr.sin_port);
-        }
-    }
+    int res = bind(s, (sockaddr*)&addr, sizeof(addr));
     closesocket(s);
-    WSACleanup();
-    return port;
+    return (res == SOCKET_ERROR);
 }
 
-// 动态更新 config.json 中的 listen_port
-static void UpdateConfigPort(const wchar_t* cfgPath, unsigned short port) {
+// 获取空闲随机高位端口
+static unsigned short GetRandomAvailablePort() {
+    unsigned short port = 0;
+    for (int i = 0; i < 50; i++) {
+        port = (unsigned short)(50000 + (rand() % 15000));
+        if (!IsPortInUse(port)) return port;
+    }
+    return 57565;
+}
+
+// 修改 config.json 中的 mixed-in 监听端口
+static void UpdateConfigPort(const wchar_t* cfgPath, unsigned short newPort) {
     FILE* fp = _wfopen(cfgPath, L"rb");
     if (!fp) return;
+
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
@@ -158,59 +202,59 @@ static void UpdateConfigPort(const wchar_t* cfgPath, unsigned short port) {
     fclose(fp);
 
     std::string s(buf.data());
-    size_t pos = s.find("\"listen_port\":");
-    if (pos != std::string::npos) {
-        size_t numStart = s.find_first_of("0123456789", pos + 14);
-        if (numStart != std::string::npos) {
-            size_t numEnd = s.find_first_not_of("0123456789", numStart);
-            if (numEnd != std::string::npos) {
-                char portA[16];
-                snprintf(portA, sizeof(portA), "%u", port);
-                s.replace(numStart, numEnd - numStart, portA);
+    size_t inbPos = s.find("\"inbounds\":");
+    if (inbPos != std::string::npos) {
+        size_t portPos = s.find("\"listen_port\":", inbPos);
+        if (portPos != std::string::npos) {
+            size_t valStart = portPos + 14;
+            while (valStart < s.size() && (s[valStart] == ' ' || s[valStart] == '\t')) valStart++;
+            size_t valEnd = valStart;
+            while (valEnd < s.size() && (s[valEnd] >= '0' && s[valEnd] <= '9')) valEnd++;
 
-                FILE* outFp = _wfopen(cfgPath, L"wb");
-                if (outFp) {
-                    fwrite(s.data(), 1, s.size(), outFp);
-                    fclose(outFp);
-                }
+            char newPortStr[16];
+            snprintf(newPortStr, sizeof(newPortStr), "%u", newPort);
+            s.replace(valStart, valEnd - valStart, newPortStr);
+
+            FILE* wfp = _wfopen(cfgPath, L"wb");
+            if (wfp) {
+                fwrite(s.data(), 1, s.size(), wfp);
+                fclose(wfp);
             }
         }
     }
 }
 
-// 启动 Sing-box 核心
+// ==================== Sing-box 核心管理 ====================
+
 static void StartSingBox() {
     if (g_SbProcInfo.hProcess != NULL) {
-        DWORD exitCode;
+        DWORD exitCode = 0;
         if (GetExitCodeProcess(g_SbProcInfo.hProcess, &exitCode) && exitCode == STILL_ACTIVE) {
-            AppendLog(L"Sing-box 核心已在运行中。");
             return;
         }
+        CloseHandle(g_SbProcInfo.hProcess);
+        CloseHandle(g_SbProcInfo.hThread);
+        g_SbProcInfo.hProcess = NULL;
     }
 
-    wchar_t exePath[MAX_PATH];
-    wchar_t cfgPath[MAX_PATH];
+    wchar_t exePath[MAX_PATH], cfgPath[MAX_PATH];
     GetSingBoxPaths(exePath, cfgPath);
 
     if (GetFileAttributesW(exePath) == INVALID_FILE_ATTRIBUTES) {
-        AppendLog(L"错误: 未找到 sing-box.exe，请检查 Sing-box 目录！");
+        AppendLog(L"错误: 未找到 Sing-box\\sing-box.exe！");
         return;
     }
 
-    // 动态生成未被占用的随机可用端口
     unsigned short randPort = GetRandomAvailablePort();
     wchar_t portStr[16];
     _snwprintf(portStr, sizeof(portStr)/sizeof(wchar_t), L"%u", randPort);
-    
-    // 同步更新界面、ini 以及 config.json
-    if (g_hEditPort) {
-        SetWindowTextW(g_hEditPort, portStr);
-    }
+
+    if (g_hEditPort) SetWindowTextW(g_hEditPort, portStr);
     SaveProxyConfig(portStr);
     UpdateConfigPort(cfgPath, randPort);
-    
+
     wchar_t portMsg[128];
-    _snwprintf(portMsg, sizeof(portMsg)/sizeof(wchar_t), L"[端口随机] 系统已动态分配可用端口: %u (零端口冲突)", randPort);
+    _snwprintf(portMsg, sizeof(portMsg)/sizeof(wchar_t), L"[端口调度] 分配可用随机端口: %u (避免占用冲突)", randPort);
     AppendLog(portMsg);
 
     wchar_t cmdLine[MAX_PATH * 3];
@@ -222,15 +266,17 @@ static void StartSingBox() {
 
     if (CreateProcessW(NULL, cmdLine, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &g_SbProcInfo)) {
         wchar_t msg[256];
-        _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"Sing-box 核心启动成功 (PID: %lu)", g_SbProcInfo.dwProcessId);
+        _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"Sing-box 核心已启动 (PID: %lu)", g_SbProcInfo.dwProcessId);
         AppendLog(msg);
-        SetWindowTextW(g_hLabelSbStatus, L"Sing-box: 运行中 [OK]");
+        wchar_t statusBuf[128];
+        _snwprintf(statusBuf, sizeof(statusBuf)/sizeof(wchar_t), L"● 运行中 [端口: %u]", randPort);
+        SetWindowTextW(g_hLabelSbStatus, statusBuf);
     } else {
         AppendLog(L"错误: 无法启动 Sing-box 进程！");
+        SetWindowTextW(g_hLabelSbStatus, L"● 启动失败");
     }
 }
 
-// 停止 Sing-box 核心
 static void StopSingBox() {
     if (g_SbProcInfo.hProcess != NULL) {
         TerminateProcess(g_SbProcInfo.hProcess, 0);
@@ -238,11 +284,9 @@ static void StopSingBox() {
         CloseHandle(g_SbProcInfo.hThread);
         g_SbProcInfo.hProcess = NULL;
         AppendLog(L"Sing-box 核心已停止。");
-    } else {
-        AppendLog(L"Sing-box 未运行。");
     }
     if (g_hLabelSbStatus) {
-        SetWindowTextW(g_hLabelSbStatus, L"Sing-box: 未运行");
+        SetWindowTextW(g_hLabelSbStatus, L"● 未运行");
     }
 }
 
@@ -267,7 +311,6 @@ static void ReloadNodeList() {
 
     std::string s(buf.data());
 
-    // 解析当前 default 节点
     std::string defaultNode;
     size_t defPos = s.find("\"default\":");
     if (defPos != std::string::npos) {
@@ -280,7 +323,6 @@ static void ReloadNodeList() {
         }
     }
 
-    // 简单提取所有 tag
     size_t pos = 0;
     int curSel = 0;
     int idx = 0;
@@ -311,6 +353,74 @@ static void ReloadNodeList() {
     SendMessageW(g_hComboNodes, CB_SETCURSEL, curSel, 0);
 }
 
+static void ApplySelectedNode() {
+    int idx = (int)SendMessageW(g_hComboNodes, CB_GETCURSEL, 0, 0);
+    if (idx == CB_ERR) return;
+
+    wchar_t nodeTag[128];
+    SendMessageW(g_hComboNodes, CB_GETLBTEXT, idx, (LPARAM)nodeTag);
+
+    wchar_t* space = wcschr(nodeTag, L' ');
+    if (space) *space = L'\0';
+
+    wchar_t exePath[MAX_PATH];
+    wchar_t cfgPath[MAX_PATH];
+    GetSingBoxPaths(exePath, cfgPath);
+
+    FILE* fp = _wfopen(cfgPath, L"rb");
+    if (!fp) {
+        AppendLog(L"无法读取 config.json！");
+        return;
+    }
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    std::vector<char> buffer(size + 1, 0);
+    fread(buffer.data(), 1, size, fp);
+    fclose(fp);
+
+    std::string content(buffer.data());
+    char targetTagA[64];
+    WideCharToMultiByte(CP_UTF8, 0, nodeTag, -1, targetTagA, sizeof(targetTagA), NULL, NULL);
+
+    size_t defPos = content.find("\"default\":");
+    if (defPos != std::string::npos) {
+        size_t quoteStart = content.find('\"', defPos + 10);
+        if (quoteStart != std::string::npos) {
+            size_t quoteEnd = content.find('\"', quoteStart + 1);
+            if (quoteEnd != std::string::npos) {
+                content.replace(quoteStart + 1, quoteEnd - quoteStart - 1, targetTagA);
+
+                FILE* outFp = _wfopen(cfgPath, L"wb");
+                if (outFp) {
+                    fwrite(content.data(), 1, content.size(), outFp);
+                    fclose(outFp);
+
+                    wchar_t msg[256];
+                    _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"√ 默认节点已切换为 [%s]，正在重启核心...", nodeTag);
+                    AppendLog(msg);
+
+                    StopSingBox();
+                    Sleep(300);
+                    StartSingBox();
+                    return;
+                }
+            }
+        }
+    }
+    AppendLog(L"节点切换失败，请检查配置文件格式。");
+}
+
+static void EditConfigFile() {
+    wchar_t exePath[MAX_PATH], cfgPath[MAX_PATH];
+    GetSingBoxPaths(exePath, cfgPath);
+    ShellExecuteW(NULL, L"open", L"notepad.exe", cfgPath, NULL, SW_SHOWNORMAL);
+    AppendLog(L"已在记事本中打开 config.json。");
+}
+
+// ==================== 权限与进程注入 ====================
+
 static void EnableDebugPrivilege() {
     HANDLE hToken;
     if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
@@ -323,7 +433,6 @@ static void EnableDebugPrivilege() {
     }
 }
 
-// 注入指定 PID
 static BOOL InjectDllByPid(DWORD pid) {
     if (pid == 0) return FALSE;
 
@@ -390,12 +499,11 @@ static BOOL InjectDllByPid(DWORD pid) {
 
     g_InjectedPids.insert(pid);
     wchar_t msg[128];
-    _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"√ 成功注入加速模块至魔兽进程 (PID: %lu)！", pid);
+    _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"√ 成功注入加速模块至进程 (PID: %lu)！", pid);
     AppendLog(msg);
     return TRUE;
 }
 
-// 根据进程名查找并注入所有匹配的游戏进程 (精确定位 WoW 11.2.5 - Firestorm.exe)
 static int InjectMatchingProcesses(const wchar_t* targetExe) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return 0;
@@ -407,13 +515,9 @@ static int InjectMatchingProcesses(const wchar_t* targetExe) {
         do {
             bool match = false;
             if (targetExe && wcslen(targetExe) > 0) {
-                if (_wcsicmp(pe.szExeFile, targetExe) == 0) {
-                    match = true;
-                }
+                if (_wcsicmp(pe.szExeFile, targetExe) == 0) match = true;
             } else {
-                if (_wcsicmp(pe.szExeFile, L"WoW 11.2.5 - Firestorm.exe") == 0) {
-                    match = true;
-                }
+                if (_wcsicmp(pe.szExeFile, L"WoW 11.2.5 - Firestorm.exe") == 0) match = true;
             }
 
             if (match) {
@@ -430,12 +534,10 @@ static int InjectMatchingProcesses(const wchar_t* targetExe) {
     return count;
 }
 
-// 自动监控注入后台线程
 static DWORD WINAPI AutoInjectWorker(LPVOID lpParam) {
     while (g_bAutoInjecting) {
         wchar_t targetName[128] = { 0 };
         GetWindowTextW(g_hEditTargetName, targetName, 128);
-
         if (wcslen(targetName) > 0) {
             InjectMatchingProcesses(targetName);
         }
@@ -458,9 +560,9 @@ static void ToggleAutoInject() {
         g_bAutoInjecting = true;
         g_hAutoInjectThread = CreateThread(NULL, 0, AutoInjectWorker, NULL, 0, NULL);
         SetWindowTextW(g_hBtnAutoInject, L"⏹ 停止自动监控");
-        
+
         wchar_t msg[256];
-        _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"🚀 [自动监控已开启] 正在监听 [%s]... 您现在可以用登录器进入游戏，程序将自动完成注入！", targetName);
+        _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"🚀 [自动监控已开启] 正在监听 [%s]... 启动游戏后将自动完成注入！", targetName);
         AppendLog(msg);
     } else {
         g_bAutoInjecting = false;
@@ -487,80 +589,13 @@ static void InjectNow() {
     int n = InjectMatchingProcesses(targetName);
     if (n == 0) {
         wchar_t msg[256];
-        _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"未检测到运行中的 [%s]，请先使用登录器启动游戏，或点击【开启自动监控】！", targetName);
+        _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"未检测到运行中的 [%s]，请先启动游戏或点击【开启自动监控】！", targetName);
         AppendLog(msg);
     }
 }
 
-static void EditConfigFile() {
-    wchar_t exePath[MAX_PATH];
-    wchar_t cfgPath[MAX_PATH];
-    GetSingBoxPaths(exePath, cfgPath);
+// ==================== 测速与连续监控 ====================
 
-    ShellExecuteW(NULL, L"open", L"notepad.exe", cfgPath, NULL, SW_SHOWNORMAL);
-    AppendLog(L"已在记事本中打开 Sing-box\\config.json。");
-}
-
-static void ApplySelectedNode() {
-    int idx = (int)SendMessageW(g_hComboNodes, CB_GETCURSEL, 0, 0);
-    if (idx == CB_ERR) return;
-
-    wchar_t nodeTag[128];
-    SendMessageW(g_hComboNodes, CB_GETLBTEXT, idx, (LPARAM)nodeTag);
-
-    wchar_t* space = wcschr(nodeTag, L' ');
-    if (space) *space = L'\0';
-
-    wchar_t exePath[MAX_PATH];
-    wchar_t cfgPath[MAX_PATH];
-    GetSingBoxPaths(exePath, cfgPath);
-
-    FILE* fp = _wfopen(cfgPath, L"rb");
-    if (!fp) {
-        AppendLog(L"无法读取 config.json！");
-        return;
-    }
-    fseek(fp, 0, SEEK_END);
-    long size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    std::vector<char> buffer(size + 1, 0);
-    fread(buffer.data(), 1, size, fp);
-    fclose(fp);
-
-    std::string content(buffer.data());
-    char targetTagA[64];
-    WideCharToMultiByte(CP_UTF8, 0, nodeTag, -1, targetTagA, sizeof(targetTagA), NULL, NULL);
-
-    size_t defPos = content.find("\"default\":");
-    if (defPos != std::string::npos) {
-        size_t quoteStart = content.find('\"', defPos + 10);
-        if (quoteStart != std::string::npos) {
-            size_t quoteEnd = content.find('\"', quoteStart + 1);
-            if (quoteEnd != std::string::npos) {
-                content.replace(quoteStart + 1, quoteEnd - quoteStart - 1, targetTagA);
-
-                FILE* outFp = _wfopen(cfgPath, L"wb");
-                if (outFp) {
-                    fwrite(content.data(), 1, content.size(), outFp);
-                    fclose(outFp);
-
-                    wchar_t msg[256];
-                    _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), L"√ 默认加速节点已切换为 [%s]！正在平滑重启 Sing-box 核心...", nodeTag);
-                    AppendLog(msg);
-
-                    StopSingBox();
-                    Sleep(300);
-                    StartSingBox();
-                    return;
-                }
-            }
-        }
-    }
-    AppendLog(L"配置替换失败，建议点击“编辑配置”直接修改。");
-}
-
-// 纯 C++ 原生高精度测速函数 (非阻塞 connect 测试直接握手延迟)
 static double MeasureDirectLatency(const char* ip, unsigned short port, int timeoutMs) {
     LARGE_INTEGER freq, t0, t1;
     QueryPerformanceFrequency(&freq);
@@ -606,7 +641,6 @@ static double MeasureDirectLatency(const char* ip, unsigned short port, int time
     return -1.0;
 }
 
-// 纯 C++ 原生测试 Socks5 代理端到端握手延迟
 static double MeasureProxyLatency(unsigned short proxyPort, const char* targetIp, unsigned short targetPort, int timeoutMs) {
     LARGE_INTEGER freq, t0, t1;
     QueryPerformanceFrequency(&freq);
@@ -630,18 +664,16 @@ static double MeasureProxyLatency(unsigned short proxyPort, const char* targetIp
         return -1.0;
     }
 
-    // Socks5 握手认证
     char authReq[3] = { 0x05, 0x01, 0x00 };
     if (send(s, authReq, 3, 0) != 3) { closesocket(s); return -1.0; }
     char authResp[2] = { 0 };
     if (recv(s, authResp, 2, 0) != 2 || authResp[0] != 0x05 || authResp[1] != 0x00) { closesocket(s); return -1.0; }
 
-    // Socks5 CONNECT 目标
     char connReq[10];
     connReq[0] = 0x05;
     connReq[1] = 0x01;
     connReq[2] = 0x00;
-    connReq[3] = 0x01; // IPv4
+    connReq[3] = 0x01;
     unsigned long ipBe = inet_addr(targetIp);
     unsigned short portBe = htons(targetPort);
     memcpy(&connReq[4], &ipBe, 4);
@@ -660,7 +692,115 @@ static double MeasureProxyLatency(unsigned short proxyPort, const char* targetIp
     return -1.0;
 }
 
-// 异步拉取并更新订阅 (WinINet 原生实现)
+static DWORD WINAPI TestSpeedWorker(LPVOID lpParam) {
+    wchar_t portStr[16];
+    GetWindowTextW(g_hEditPort, portStr, 16);
+    unsigned short port = (unsigned short)_wtoi(portStr);
+    if (port == 0) port = 2081;
+
+    AppendLog(L"[*] 目标: 141.95.207.63:8285 (Firestorm 世界服)");
+    AppendLog(L"[1/2] 正在测试【直连模式】真实延迟...");
+
+    double dSum = 0, dMin = 99999;
+    int dCount = 0;
+    for (int i = 0; i < 3; i++) {
+        double t = MeasureDirectLatency("141.95.207.63", 8285, 2000);
+        if (t > 0) {
+            dSum += t;
+            if (t < dMin) dMin = t;
+            dCount++;
+        }
+        Sleep(50);
+    }
+
+    wchar_t msg[256];
+    if (dCount > 0) {
+        _snwprintf(msg, 256, L"  [-] 直连延迟 (不加速): %.1f ms", dSum / dCount);
+    } else {
+        _snwprintf(msg, 256, L"  [-] 直连延迟 (不加速): 超时阻断 / 无法直连");
+    }
+    AppendLog(msg);
+
+    _snwprintf(msg, 256, L"[2/2] 正在测试【专线加速】真实端到端延迟 (本地端口: %u)...", port);
+    AppendLog(msg);
+
+    double pSum = 0, pMin = 99999;
+    int pCount = 0;
+    for (int i = 0; i < 3; i++) {
+        double t = MeasureProxyLatency(port, "141.95.207.63", 8285, 4000);
+        if (t > 0) {
+            pSum += t;
+            if (t < pMin) pMin = t;
+            pCount++;
+        }
+        Sleep(50);
+    }
+
+    if (pCount > 0) {
+        _snwprintf(msg, 256, L"  [+] 专线加速延迟: %.1f ms (最低 %.1f ms) - 链路稳定", pSum / pCount, pMin);
+        AppendLog(msg);
+    } else {
+        AppendLog(L"  [!] 专线测速超时: 请先确认 Sing-box 核心已启动！");
+    }
+    return 0;
+}
+
+static void RunSpeedTest() {
+    StartSingBox();
+    HANDLE h = CreateThread(NULL, 0, TestSpeedWorker, NULL, 0, NULL);
+    if (h) CloseHandle(h);
+}
+
+static DWORD WINAPI MonitorWorker(LPVOID lpParam) {
+    wchar_t portStr[16];
+    GetWindowTextW(g_hEditPort, portStr, 16);
+    unsigned short port = (unsigned short)_wtoi(portStr);
+    if (port == 0) port = 2081;
+
+    AppendLog(L"[+] 开启 10s 周期对比监控...");
+
+    while (g_bMonitoring) {
+        double dLat = MeasureDirectLatency("141.95.207.63", 8285, 2000);
+        double pLat = MeasureProxyLatency(port, "141.95.207.63", 8285, 4000);
+
+        wchar_t line[256];
+        if (pLat > 0 && dLat > 0) {
+            _snwprintf(line, 256, L"[10s 监控] 专线: %.1f ms  vs  直连: %.1f ms (平稳)", pLat, dLat);
+        } else if (pLat > 0) {
+            _snwprintf(line, 256, L"[10s 监控] 专线: %.1f ms  vs  直连: 超时阻断", pLat);
+        } else {
+            _snwprintf(line, 256, L"[10s 监控] 专线握手超时 (端口: %u)", port);
+        }
+        AppendLog(line);
+
+        for (int i = 0; i < 20 && g_bMonitoring; i++) {
+            Sleep(500);
+        }
+    }
+    return 0;
+}
+
+static void ToggleMonitor() {
+    if (!g_bMonitoring) {
+        StartSingBox();
+        g_bMonitoring = true;
+        if (g_hBtnMonitor) SetWindowTextW(g_hBtnMonitor, L"⏹ 停止监控");
+        AppendLog(L"⏱️ [实时对比监控已启动] 每 10 秒刷新一次加速与直连对比...");
+        g_hMonitorThread = CreateThread(NULL, 0, MonitorWorker, NULL, 0, NULL);
+    } else {
+        g_bMonitoring = false;
+        if (g_hMonitorThread) {
+            WaitForSingleObject(g_hMonitorThread, 1500);
+            CloseHandle(g_hMonitorThread);
+            g_hMonitorThread = NULL;
+        }
+        if (g_hBtnMonitor) SetWindowTextW(g_hBtnMonitor, L"⏱️ 对比监控(10s)");
+        AppendLog(L"已停止对比监控。");
+    }
+}
+
+// ==================== 订阅管理 ====================
+
 struct SubWorkerParam {
     std::wstring url;
     std::wstring prefix;
@@ -702,7 +842,7 @@ static DWORD WINAPI FetchSubWorker(LPVOID lpParam) {
         wchar_t log[128];
         _snwprintf(log, 128, L"√ 成功拉取订阅数据 (大小: %zu 字节)！", text.size());
         AppendLog(log);
-        AppendLog(L"提示：当前 Sing-box 核心专线已就绪，可在 config.json 中更新节点。");
+        AppendLog(L"提示：订阅拉取完成，可重新加载节点或编辑配置。");
     }
 
     delete p;
@@ -727,247 +867,571 @@ static void FetchSubscription(bool isPrimary) {
     if (h) CloseHandle(h);
 }
 
-// 异步测速线程 (纯 C++ 原生实现)
-static DWORD WINAPI TestSpeedWorker(LPVOID lpParam) {
-    wchar_t portStr[16];
-    GetWindowTextW(g_hEditPort, portStr, 16);
-    unsigned short port = (unsigned short)_wtoi(portStr);
-    if (port == 0) port = 2081;
+// ==================== Tab 2: 服务器连通性探针 ====================
 
-    AppendLog(L"[*] 目标游戏服: 141.95.207.63:8285 (Firestorm 世界服)");
-    AppendLog(L"--------------------------------------------------");
-    AppendLog(L"[1/2] 正在测试【直连模式 (不加速)】真实可用性...");
+// 探测单个 IP/域名 和端口
+// return: 0=在线, 1=超时, 2=连接被拒(RST), 3=域名解析失败
+static int ProbeServer(const char* host, int port, int timeoutMs, double& outRtt) {
+    outRtt = -1.0;
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) return 1;
 
-    double dSum = 0, dMin = 99999;
-    int dCount = 0;
-    for (int i = 0; i < 3; i++) {
-        double t = MeasureDirectLatency("141.95.207.63", 8285, 2000);
-        if (t > 0) {
-            dSum += t;
-            if (t < dMin) dMin = t;
-            dCount++;
+    u_long nonblock = 1;
+    ioctlsocket(s, FIONBIO, &nonblock);
+
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((unsigned short)port);
+
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
+        struct hostent* he = gethostbyname(host);
+        if (!he || !he->h_addr_list[0]) {
+            closesocket(s);
+            return 3;
         }
+        memcpy(&addr.sin_addr, he->h_addr_list[0], sizeof(in_addr));
+    }
+
+    LARGE_INTEGER freq, tStart, tEnd;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&tStart);
+
+    int connRes = connect(s, (sockaddr*)&addr, sizeof(addr));
+    int status = 1; // default timeout
+
+    if (connRes == 0) {
+        QueryPerformanceCounter(&tEnd);
+        outRtt = (double)(tEnd.QuadPart - tStart.QuadPart) * 1000.0 / (double)freq.QuadPart;
+        status = 0;
+    } else {
+        int err = WSAGetLastError();
+        if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS) {
+            fd_set writeSet, errSet;
+            FD_ZERO(&writeSet);
+            FD_ZERO(&errSet);
+            FD_SET(s, &writeSet);
+            FD_SET(s, &errSet);
+
+            timeval tv;
+            tv.tv_sec = timeoutMs / 1000;
+            tv.tv_usec = (timeoutMs % 1000) * 1000;
+
+            int selRes = select(0, NULL, &writeSet, &errSet, &tv);
+            if (selRes > 0) {
+                if (FD_ISSET(s, &writeSet)) {
+                    int so_error = 0;
+                    int len = sizeof(so_error);
+                    getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&so_error, &len);
+                    if (so_error == 0) {
+                        QueryPerformanceCounter(&tEnd);
+                        outRtt = (double)(tEnd.QuadPart - tStart.QuadPart) * 1000.0 / (double)freq.QuadPart;
+                        status = 0;
+                    } else if (so_error == WSAECONNREFUSED) {
+                        status = 2;
+                    } else {
+                        status = 1;
+                    }
+                } else if (FD_ISSET(s, &errSet)) {
+                    status = 2;
+                }
+            } else {
+                status = 1;
+            }
+        } else if (err == WSAECONNREFUSED) {
+            status = 2;
+        }
+    }
+
+    closesocket(s);
+    return status;
+}
+
+static void UpdateProbeListViewItem(int index) {
+    if (!g_hListProbe || index < 0 || index >= (int)g_ProbeTargets.size()) return;
+    const ProbeTarget& tgt = g_ProbeTargets[index];
+
+    ListView_SetItemText(g_hListProbe, index, 3, (LPWSTR)tgt.status.c_str());
+
+    wchar_t rttBuf[32];
+    if (tgt.rtt >= 0) {
+        _snwprintf(rttBuf, 32, L"%.1f ms", tgt.rtt);
+    } else {
+        wcscpy(rttBuf, L"--");
+    }
+    ListView_SetItemText(g_hListProbe, index, 4, rttBuf);
+}
+
+static DWORD WINAPI ProbeAllWorker(LPVOID lpParam) {
+    g_bProbing = true;
+    if (g_hBtnProbeAll) EnableWindow(g_hBtnProbeAll, FALSE);
+    if (g_hLabelProbeTips) SetWindowTextW(g_hLabelProbeTips, L"正在并发探测各服务器节点連通性...");
+
+    int onlineCount = 0;
+    int offlineCount = 0;
+    bool wowOffline = false;
+
+    for (size_t i = 0; i < g_ProbeTargets.size(); i++) {
+        g_ProbeTargets[i].status = L"检测中...";
+        UpdateProbeListViewItem((int)i);
+    }
+
+    for (size_t i = 0; i < g_ProbeTargets.size(); i++) {
+        double rtt = -1.0;
+        int res = ProbeServer(g_ProbeTargets[i].host.c_str(), g_ProbeTargets[i].port, 2000, rtt);
+        g_ProbeTargets[i].rtt = rtt;
+
+        if (res == 0) {
+            g_ProbeTargets[i].status = L"● 在线 (正常)";
+            onlineCount++;
+        } else if (res == 1) {
+            g_ProbeTargets[i].status = L"✖ 超时离线";
+            offlineCount++;
+            if (g_ProbeTargets[i].port == 8285 || g_ProbeTargets[i].port == 1119) {
+                wowOffline = true;
+            }
+        } else if (res == 2) {
+            g_ProbeTargets[i].status = L"✖ 端口关闭 (RST)";
+            offlineCount++;
+            if (g_ProbeTargets[i].port == 8285 || g_ProbeTargets[i].port == 1119) {
+                wowOffline = true;
+            }
+        } else {
+            g_ProbeTargets[i].status = L"✖ DNS 解析失败";
+            offlineCount++;
+        }
+
+        UpdateProbeListViewItem((int)i);
         Sleep(50);
     }
 
-    wchar_t msg[256];
-    if (dCount > 0) {
-        _snwprintf(msg, 256, L"  [-] 直连延迟 (不加速): %.1f ms (最低 %.1f ms)", dSum / dCount, dMin);
+    // 智能诊断提示
+    wchar_t diagMsg[256];
+    if (wowOffline) {
+        _snwprintf(diagMsg, 256, L"诊断结论: Firestorm 认证/世界服端口超时离线，疑似官方服务器正在维护或被骨干网阻断！");
+    } else if (onlineCount == (int)g_ProbeTargets.size()) {
+        _snwprintf(diagMsg, 256, L"诊断结论: 所有探测目标全部连通在线！网络状态优异，可正常登录游戏。");
     } else {
-        _snwprintf(msg, 256, L"  [-] 直连延迟 (不加速): 超时阻断/无法直连");
-    }
-    AppendLog(msg);
-
-    _snwprintf(msg, 256, L"[2/2] 正在测试【专线加速 (已加速)】真实端到端延迟 (本地端口: %u)...", port);
-    AppendLog(msg);
-
-    double pSum = 0, pMin = 99999;
-    int pCount = 0;
-    for (int i = 0; i < 3; i++) {
-        double t = MeasureProxyLatency(port, "141.95.207.63", 8285, 4000);
-        if (t > 0) {
-            pSum += t;
-            if (t < pMin) pMin = t;
-            pCount++;
-        }
-        Sleep(50);
+        _snwprintf(diagMsg, 256, L"诊断完成: %d 个在线，%d 个离线。若专线在线而游戏服离线，说明专线良好、游戏服未开放。", onlineCount, offlineCount);
     }
 
-    if (pCount > 0) {
-        _snwprintf(msg, 256, L"  [+] 专线真实端到端延迟: %.1f ms (最低 %.1f ms)", pSum / pCount, pMin);
-        AppendLog(msg);
-        AppendLog(L"  [+] 专线传输质量: 良好稳定 [4星级] (适合稳定副本与战斗)");
-        AppendLog(L"--------------------------------------------------");
-        _snwprintf(msg, 256, L"[评级] 延迟对比: 专线 %.1f ms  vs  直连 %.1f ms", pSum / pCount, dCount > 0 ? (dSum / dCount) : 0);
-        AppendLog(msg);
-    } else {
-        AppendLog(L"  [!] 专线测速失败: 无法连接本地代理端口或专线握手超时！");
-        AppendLog(L"  [!] 请先点击【启动 Sing-box】或检查节点配置！");
-    }
+    if (g_hLabelProbeTips) SetWindowTextW(g_hLabelProbeTips, diagMsg);
+    if (g_hBtnProbeAll) EnableWindow(g_hBtnProbeAll, TRUE);
+    g_bProbing = false;
     return 0;
 }
 
-static void RunSpeedTest() {
-    StartSingBox();
-    HANDLE h = CreateThread(NULL, 0, TestSpeedWorker, NULL, 0, NULL);
+static void RunProbeAll() {
+    if (g_bProbing) return;
+    HANDLE h = CreateThread(NULL, 0, ProbeAllWorker, NULL, 0, NULL);
     if (h) CloseHandle(h);
 }
 
-// 异步连续对比监控线程 (每 10s 刷新一行，纯 C++ 原生实现)
-static DWORD WINAPI MonitorWorker(LPVOID lpParam) {
-    wchar_t portStr[16];
-    GetWindowTextW(g_hEditPort, portStr, 16);
-    unsigned short port = (unsigned short)_wtoi(portStr);
-    if (port == 0) port = 2081;
+static void PopulateProbeListView() {
+    if (!g_hListProbe) return;
+    ListView_DeleteAllItems(g_hListProbe);
 
-    AppendLog(L"[+] 开启 10s 周期对比监控...");
+    for (size_t i = 0; i < g_ProbeTargets.size(); i++) {
+        const ProbeTarget& tgt = g_ProbeTargets[i];
 
-    while (g_bMonitoring) {
-        double dLat = MeasureDirectLatency("141.95.207.63", 8285, 2000);
-        double pLat = MeasureProxyLatency(port, "141.95.207.63", 8285, 4000);
+        LVITEMW lvi = { 0 };
+        lvi.mask = LVIF_TEXT;
+        lvi.iItem = (int)i;
+        lvi.iSubItem = 0;
+        lvi.pszText = (LPWSTR)tgt.name.c_str();
+        ListView_InsertItem(g_hListProbe, &lvi);
 
-        wchar_t line[256];
-        if (pLat > 0 && dLat > 0) {
-            _snwprintf(line, 256, L"[10s 监控] 专线: %.1f ms  vs  直连: %.1f ms (链路稳定)", pLat, dLat);
-        } else if (pLat > 0) {
-            _snwprintf(line, 256, L"[10s 监控] 专线: %.1f ms  vs  直连: 超时阻断", pLat);
+        wchar_t wHost[128];
+        MultiByteToWideChar(CP_UTF8, 0, tgt.host.c_str(), -1, wHost, 128);
+        ListView_SetItemText(g_hListProbe, (int)i, 1, wHost);
+
+        wchar_t wPort[16];
+        _snwprintf(wPort, 16, L"%d", tgt.port);
+        ListView_SetItemText(g_hListProbe, (int)i, 2, wPort);
+
+        ListView_SetItemText(g_hListProbe, (int)i, 3, (LPWSTR)tgt.status.c_str());
+
+        wchar_t rttBuf[32];
+        if (tgt.rtt >= 0) {
+            _snwprintf(rttBuf, 32, L"%.1f ms", tgt.rtt);
         } else {
-            _snwprintf(line, 256, L"[10s 监控] 专线测速超时/未就绪 (请检查端口 %u)", port);
+            wcscpy(rttBuf, L"--");
         }
-        AppendLog(line);
-
-        for (int i = 0; i < 20 && g_bMonitoring; i++) {
-            Sleep(500); // 10秒监控间隔
-        }
+        ListView_SetItemText(g_hListProbe, (int)i, 4, rttBuf);
     }
-    return 0;
 }
 
-static void ToggleMonitor() {
-    if (!g_bMonitoring) {
-        StartSingBox();
-        g_bMonitoring = true;
-        if (g_hBtnMonitor) SetWindowTextW(g_hBtnMonitor, L"⏹ 停止监控");
-        AppendLog(L"⏱️ [实时对比监控已启动] 后台每 10 秒刷新一次加速与直连对比...");
-        g_hMonitorThread = CreateThread(NULL, 0, MonitorWorker, NULL, 0, NULL);
+static void AddCustomProbeTarget() {
+    wchar_t name[128] = { 0 }, host[128] = { 0 }, portStr[16] = { 0 };
+    GetWindowTextW(g_hEditProbeName, name, 128);
+    GetWindowTextW(g_hEditProbeHost, host, 128);
+    GetWindowTextW(g_hEditProbePort, portStr, 16);
+
+    int port = _wtoi(portStr);
+    if (wcslen(host) == 0 || port <= 0 || port > 65535) {
+        MessageBoxW(g_hMainWnd, L"请输入有效的目标 IP/域名 和 1-65535 端口！", L"提示", MB_ICONWARNING);
+        return;
+    }
+
+    if (wcslen(name) == 0) {
+        wcscpy(name, L"自定义探针节点");
+    }
+
+    char hostA[128];
+    WideCharToMultiByte(CP_UTF8, 0, host, -1, hostA, 128, NULL, NULL);
+
+    ProbeTarget pt;
+    pt.name = name;
+    pt.host = hostA;
+    pt.port = port;
+    pt.status = L"待检测";
+    pt.rtt = -1.0;
+
+    g_ProbeTargets.push_back(pt);
+    PopulateProbeListView();
+
+    // 清空输入框
+    SetWindowTextW(g_hEditProbeName, L"");
+    SetWindowTextW(g_hEditProbeHost, L"");
+    SetWindowTextW(g_hEditProbePort, L"");
+}
+
+static void DeleteSelectedProbeTarget() {
+    int sel = ListView_GetNextItem(g_hListProbe, -1, LVNI_SELECTED);
+    if (sel >= 0 && sel < (int)g_ProbeTargets.size()) {
+        g_ProbeTargets.erase(g_ProbeTargets.begin() + sel);
+        PopulateProbeListView();
     } else {
-        g_bMonitoring = false;
-        if (g_hMonitorThread) {
-            WaitForSingleObject(g_hMonitorThread, 1500);
-            CloseHandle(g_hMonitorThread);
-            g_hMonitorThread = NULL;
-        }
-        if (g_hBtnMonitor) SetWindowTextW(g_hBtnMonitor, L"⏱️ 对比监控(10s)");
-        AppendLog(L"已停止对比监控。");
+        MessageBoxW(g_hMainWnd, L"请先在列表中选中要删除的探针项！", L"提示", MB_ICONINFORMATION);
     }
 }
 
-// 窗口过程
+// ==================== Tab 页面切换 ====================
+
+static void SwitchTab(int tabIndex) {
+    for (HWND h : g_Tab1Ctrls) ShowWindow(h, tabIndex == 0 ? SW_SHOW : SW_HIDE);
+    for (HWND h : g_Tab2Ctrls) ShowWindow(h, tabIndex == 1 ? SW_SHOW : SW_HIDE);
+    for (HWND h : g_Tab3Ctrls) ShowWindow(h, tabIndex == 2 ? SW_SHOW : SW_HIDE);
+}
+
+// ==================== 窗口过程 ====================
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: {
-        g_hFont = CreateFontW(
-            -13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // 创建全局字体
+        g_hFontNormal = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-            L"Microsoft YaHei"
-        );
-        if (!g_hFont) g_hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei UI");
+        if (!g_hFontNormal) g_hFontNormal = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
 
-        HFONT hBoldFont = CreateFontW(
-            -13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        g_hFontBold = CreateFontW(-13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-            L"Microsoft YaHei"
-        );
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei UI");
 
-        int y = 12;
+        g_hFontConsole = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
 
-        // ────── 区域 1：专线节点配置 ──────
-        HWND hGrpNode = CreateWindowW(L"BUTTON", L" 专线节点选择与监控配置 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 15, y, 520, 88, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hGrpNode, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
+        g_hBrushBg = CreateSolidBrush(RGB(246, 248, 250));
+        g_hBrushDarkLog = CreateSolidBrush(RGB(22, 27, 34));
 
-        HWND hLblNode = CreateWindowW(L"STATIC", L"加速节点:", WS_CHILD | WS_VISIBLE, 28, y + 25, 65, 20, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hLblNode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        // 1. 顶部 Tab Control
+        g_hTabCtrl = CreateWindowExW(0, WC_TABCONTROLW, L"",
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+            12, 10, 638, 550, hWnd, (HMENU)ID_TAB_MAIN, g_hInstance, NULL);
+        SendMessageW(g_hTabCtrl, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hComboNodes = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 95, y + 22, 160, 180, hWnd, (HMENU)ID_COMBO_NODES, g_hInstance, NULL);
-        SendMessageW(g_hComboNodes, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        TCITEMW tie = { 0 };
+        tie.mask = TCIF_TEXT;
 
-        HWND hBtnApplyNode = CreateWindowW(L"BUTTON", L"切换", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 260, y + 21, 50, 26, hWnd, (HMENU)ID_BTN_APPLY_NODE, g_hInstance, NULL);
-        SendMessageW(hBtnApplyNode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        tie.pszText = (LPWSTR)L"  🎮 游戏专线加速  ";
+        TabCtrl_InsertItem(g_hTabCtrl, 0, &tie);
 
-        HWND hBtnTestSpeed = CreateWindowW(L"BUTTON", L"⚡ 测速", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 315, y + 21, 65, 26, hWnd, (HMENU)ID_BTN_TEST_SPEED, g_hInstance, NULL);
-        SendMessageW(hBtnTestSpeed, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
+        tie.pszText = (LPWSTR)L"  🔍 服务器连通性探针  ";
+        TabCtrl_InsertItem(g_hTabCtrl, 1, &tie);
 
-        g_hBtnMonitor = CreateWindowW(L"BUTTON", L"⏱️ 对比监控(10s)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 385, y + 21, 135, 26, hWnd, (HMENU)ID_BTN_MONITOR, g_hInstance, NULL);
-        SendMessageW(g_hBtnMonitor, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
+        tie.pszText = (LPWSTR)L"  🌐 订阅与专线配置  ";
+        TabCtrl_InsertItem(g_hTabCtrl, 2, &tie);
 
-        // Socks5 端口与核心状态
-        HWND hLblPort = CreateWindowW(L"STATIC", L"本地端口:", WS_CHILD | WS_VISIBLE, 28, y + 56, 65, 20, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hLblPort, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        // ==================== TAB 1 控件布局 ====================
+        int y1 = 45;
 
-        g_hEditPort = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"57565", WS_CHILD | WS_VISIBLE | ES_NUMBER, 95, y + 54, 55, 22, hWnd, (HMENU)ID_EDIT_PORT, g_hInstance, NULL);
-        SendMessageW(g_hEditPort, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        // 区域 1：专线节点控制
+        HWND hGrpNode = CreateWindowW(L"BUTTON", L" 专线节点与核心状态 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 25, y1, 612, 88, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hGrpNode, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab1Ctrls.push_back(hGrpNode);
 
-        g_hLabelSbStatus = CreateWindowW(L"STATIC", L"Sing-box: 未运行", WS_CHILD | WS_VISIBLE, 160, y + 56, 135, 20, hWnd, (HMENU)ID_LABEL_SB_STATUS, g_hInstance, NULL);
-        SendMessageW(g_hLabelSbStatus, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        HWND hLblNode = CreateWindowW(L"STATIC", L"加速节点:", WS_CHILD | WS_VISIBLE, 38, y1 + 25, 65, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblNode, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hLblNode);
 
-        HWND hBtnStartSb = CreateWindowW(L"BUTTON", L"启动核心", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 305, y + 53, 68, 24, hWnd, (HMENU)ID_BTN_START_SB, g_hInstance, NULL);
-        SendMessageW(hBtnStartSb, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        g_hComboNodes = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 105, y1 + 22, 185, 200, hWnd, (HMENU)ID_COMBO_NODES, g_hInstance, NULL);
+        SendMessageW(g_hComboNodes, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(g_hComboNodes);
 
-        HWND hBtnStopSb = CreateWindowW(L"BUTTON", L"停止", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 380, y + 53, 60, 24, hWnd, (HMENU)ID_BTN_STOP_SB, g_hInstance, NULL);
-        SendMessageW(hBtnStopSb, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        HWND hBtnApply = CreateWindowW(L"BUTTON", L"切换", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 296, y1 + 21, 55, 26, hWnd, (HMENU)ID_BTN_APPLY_NODE, g_hInstance, NULL);
+        SendMessageW(hBtnApply, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hBtnApply);
 
-        HWND hBtnEditCfg = CreateWindowW(L"BUTTON", L"编辑配置", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 448, y + 53, 72, 24, hWnd, (HMENU)ID_BTN_EDIT_CONFIG, g_hInstance, NULL);
-        SendMessageW(hBtnEditCfg, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        HWND hBtnSpeed = CreateWindowW(L"BUTTON", L"⚡ 测速", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 356, y1 + 21, 68, 26, hWnd, (HMENU)ID_BTN_TEST_SPEED, g_hInstance, NULL);
+        SendMessageW(hBtnSpeed, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab1Ctrls.push_back(hBtnSpeed);
 
-        y += 95;
+        g_hBtnMonitor = CreateWindowW(L"BUTTON", L"⏱️ 对比监控(10s)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 430, y1 + 21, 135, 26, hWnd, (HMENU)ID_BTN_MONITOR, g_hInstance, NULL);
+        SendMessageW(g_hBtnMonitor, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab1Ctrls.push_back(g_hBtnMonitor);
 
-        // ────── 区域 2：游戏注入控制 ──────
-        HWND hGrpInject = CreateWindowW(L"BUTTON", L" 游戏注入加速（适配登录器） ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 15, y, 520, 115, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hGrpInject, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
+        HWND hLblPort = CreateWindowW(L"STATIC", L"本地端口:", WS_CHILD | WS_VISIBLE, 38, y1 + 56, 65, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblPort, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hLblPort);
 
-        HWND hLblTarget = CreateWindowW(L"STATIC", L"目标游戏进程名:", WS_CHILD | WS_VISIBLE, 30, y + 28, 100, 20, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hLblTarget, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        g_hEditPort = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"57565", WS_CHILD | WS_VISIBLE | ES_NUMBER, 105, y1 + 54, 55, 22, hWnd, (HMENU)ID_EDIT_PORT, g_hInstance, NULL);
+        SendMessageW(g_hEditPort, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(g_hEditPort);
 
-        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW 11.2.5 - Firestorm.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 135, y + 25, 205, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
-        SendMessageW(g_hEditTargetName, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        g_hLabelSbStatus = CreateWindowW(L"STATIC", L"● 未运行", WS_CHILD | WS_VISIBLE, 175, y1 + 56, 200, 20, hWnd, (HMENU)ID_LABEL_SB_STATUS, g_hInstance, NULL);
+        SendMessageW(g_hLabelSbStatus, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab1Ctrls.push_back(g_hLabelSbStatus);
 
-        g_hBtnAutoInject = CreateWindowW(L"BUTTON", L"🚀 开启自动监控注入", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 350, y + 22, 170, 30, hWnd, (HMENU)ID_BTN_AUTO_INJECT, g_hInstance, NULL);
-        SendMessageW(g_hBtnAutoInject, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
+        HWND hBtnStartSb = CreateWindowW(L"BUTTON", L"启动核心", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 385, y1 + 53, 72, 25, hWnd, (HMENU)ID_BTN_START_SB, g_hInstance, NULL);
+        SendMessageW(hBtnStartSb, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hBtnStartSb);
 
-        HWND hBtnInjectNow = CreateWindowW(L"BUTTON", L"💉 立即注入现有游戏 (免输PID)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 30, y + 65, 200, 32, hWnd, (HMENU)ID_BTN_INJECT_NOW, g_hInstance, NULL);
-        SendMessageW(hBtnInjectNow, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        HWND hBtnStopSb = CreateWindowW(L"BUTTON", L"停止", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 462, y1 + 53, 60, 25, hWnd, (HMENU)ID_BTN_STOP_SB, g_hInstance, NULL);
+        SendMessageW(hBtnStopSb, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hBtnStopSb);
 
-        HWND hLblPid = CreateWindowW(L"STATIC", L"或按 PID:", WS_CHILD | WS_VISIBLE, 245, y + 72, 60, 20, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hLblPid, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        HWND hBtnEditCfg = CreateWindowW(L"BUTTON", L"配置", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 527, y1 + 53, 58, 25, hWnd, (HMENU)ID_BTN_EDIT_CONFIG, g_hInstance, NULL);
+        SendMessageW(hBtnEditCfg, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hBtnEditCfg);
 
-        g_hEditPid = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_NUMBER, 310, y + 68, 65, 24, hWnd, (HMENU)ID_EDIT_PID, g_hInstance, NULL);
-        SendMessageW(g_hEditPid, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        y1 += 96;
 
-        HWND hBtnInjectPid = CreateWindowW(L"BUTTON", L"注入PID", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 385, y + 66, 65, 28, hWnd, (HMENU)ID_BTN_INJECT_PID, g_hInstance, NULL);
-        SendMessageW(hBtnInjectPid, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        // 区域 2：游戏注入控制
+        HWND hGrpInject = CreateWindowW(L"BUTTON", L" 游戏进程拦截与自动注入 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 25, y1, 612, 105, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hGrpInject, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab1Ctrls.push_back(hGrpInject);
 
-        y += 125;
+        HWND hLblTarget = CreateWindowW(L"STATIC", L"目标进程名:", WS_CHILD | WS_VISIBLE, 38, y1 + 27, 75, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblTarget, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hLblTarget);
 
-        // ────── 区域 3：运行日志 ──────
-        g_hEditLog = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY, 15, y, 520, 160, hWnd, (HMENU)ID_EDIT_LOG, g_hInstance, NULL);
-        SendMessageW(g_hEditLog, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW 11.2.5 - Firestorm.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 115, y1 + 24, 250, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
+        SendMessageW(g_hEditTargetName, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(g_hEditTargetName);
 
-        y += 170;
+        g_hBtnAutoInject = CreateWindowW(L"BUTTON", L"🚀 开启自动监控注入", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 380, y1 + 22, 160, 28, hWnd, (HMENU)ID_BTN_AUTO_INJECT, g_hInstance, NULL);
+        SendMessageW(g_hBtnAutoInject, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab1Ctrls.push_back(g_hBtnAutoInject);
 
-        // ────── 区域 4：底部订阅管理（主 / 备 链接） ──────
-        HWND hGrpSub = CreateWindowW(L"BUTTON", L" 专线订阅链接管理 (主 / 备) ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 15, y, 520, 105, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hGrpSub, WM_SETFONT, (WPARAM)hBoldFont, TRUE);
+        HWND hBtnInjectNow = CreateWindowW(L"BUTTON", L"💉 立即注入现有游戏", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 38, y1 + 60, 160, 30, hWnd, (HMENU)ID_BTN_INJECT_NOW, g_hInstance, NULL);
+        SendMessageW(hBtnInjectNow, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hBtnInjectNow);
 
-        // 主订阅
-        HWND hLblSubPri = CreateWindowW(L"STATIC", L"主订阅:", WS_CHILD | WS_VISIBLE, 28, y + 28, 55, 20, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hLblSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        HWND hLblPid = CreateWindowW(L"STATIC", L"按 PID:", WS_CHILD | WS_VISIBLE, 220, y1 + 66, 50, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblPid, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hLblPid);
 
-        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"http://<SERVER_IP>:3589/sub?token=<YOUR_TOKEN>", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 25, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
-        SendMessageW(g_hEditSubPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        g_hEditPid = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_NUMBER, 275, y1 + 63, 65, 24, hWnd, (HMENU)ID_EDIT_PID, g_hInstance, NULL);
+        SendMessageW(g_hEditPid, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(g_hEditPid);
 
-        HWND hBtnFetchPri = CreateWindowW(L"BUTTON", L"拉取主订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 410, y + 23, 110, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_PRI, g_hInstance, NULL);
-        SendMessageW(hBtnFetchPri, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        HWND hBtnInjectPid = CreateWindowW(L"BUTTON", L"注入PID", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 348, y1 + 62, 70, 26, hWnd, (HMENU)ID_BTN_INJECT_PID, g_hInstance, NULL);
+        SendMessageW(hBtnInjectPid, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab1Ctrls.push_back(hBtnInjectPid);
 
-        // 备订阅
-        HWND hLblSubBak = CreateWindowW(L"STATIC", L"备订阅:", WS_CHILD | WS_VISIBLE, 28, y + 65, 55, 20, hWnd, NULL, g_hInstance, NULL);
-        SendMessageW(hLblSubBak, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        y1 += 113;
 
-        g_hEditSubBak = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 85, y + 62, 315, 24, hWnd, (HMENU)ID_EDIT_SUB_BAK, g_hInstance, NULL);
-        SendMessageW(g_hEditSubBak, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        // 区域 3：极客终端日志
+        g_hEditLog = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+            25, y1, 612, 240, hWnd, (HMENU)ID_EDIT_LOG, g_hInstance, NULL);
+        SendMessageW(g_hEditLog, WM_SETFONT, (WPARAM)g_hFontConsole, TRUE);
+        g_Tab1Ctrls.push_back(g_hEditLog);
 
-        HWND hBtnFetchBak = CreateWindowW(L"BUTTON", L"拉取备订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 410, y + 60, 110, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_BAK, g_hInstance, NULL);
-        SendMessageW(hBtnFetchBak, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        // ==================== TAB 2 控件布局 (服务器探针) ====================
+        int y2 = 45;
 
-        // 初始化加载配置节点列表
+        HWND hLblProbeHeader = CreateWindowW(L"STATIC", L"实时探测各服务节点 TCP 握手与延迟，排查游戏连不上是否为官方停服维护：", WS_CHILD | WS_VISIBLE, 25, y2, 450, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblProbeHeader, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(hLblProbeHeader);
+
+        g_hBtnProbeAll = CreateWindowW(L"BUTTON", L"⚡ 一键全面检测", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 485, y2 - 4, 150, 30, hWnd, (HMENU)ID_BTN_PROBE_ALL, g_hInstance, NULL);
+        SendMessageW(g_hBtnProbeAll, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab2Ctrls.push_back(g_hBtnProbeAll);
+
+        y2 += 34;
+
+        // ListView 探针报表
+        g_hListProbe = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+            WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER,
+            25, y2, 612, 280, hWnd, (HMENU)ID_LIST_PROBE, g_hInstance, NULL);
+        SendMessageW(g_hListProbe, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        ListView_SetExtendedListViewStyle(g_hListProbe, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+
+        LVCOLUMNW col = { 0 };
+        col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+
+        col.pszText = (LPWSTR)L"服务 / 目标名称"; col.cx = 220; ListView_InsertColumn(g_hListProbe, 0, &col);
+        col.pszText = (LPWSTR)L"目标 IP / 域名"; col.cx = 140; ListView_InsertColumn(g_hListProbe, 1, &col);
+        col.pszText = (LPWSTR)L"端口"; col.cx = 65; ListView_InsertColumn(g_hListProbe, 2, &col);
+        col.pszText = (LPWSTR)L"连通状态"; col.cx = 100; ListView_InsertColumn(g_hListProbe, 3, &col);
+        col.pszText = (LPWSTR)L"往返延迟 (RTT)"; col.cx = 85; ListView_InsertColumn(g_hListProbe, 4, &col);
+
+        g_Tab2Ctrls.push_back(g_hListProbe);
+
+        y2 += 288;
+
+        // 诊断建议信息框
+        g_hLabelProbeTips = CreateWindowW(L"STATIC", L"就绪。点击【一键全面检测】立即并发探测 Firestorm 官方服与专线状态。", WS_CHILD | WS_VISIBLE, 25, y2, 612, 38, hWnd, (HMENU)ID_LABEL_PROBE_TIPS, g_hInstance, NULL);
+        SendMessageW(g_hLabelProbeTips, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab2Ctrls.push_back(g_hLabelProbeTips);
+
+        y2 += 44;
+
+        // 添加自定义探针面板
+        HWND hGrpAddProbe = CreateWindowW(L"BUTTON", L" 添加自定义探测节点 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 25, y2, 612, 80, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hGrpAddProbe, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab2Ctrls.push_back(hGrpAddProbe);
+
+        HWND hLblPName = CreateWindowW(L"STATIC", L"名称:", WS_CHILD | WS_VISIBLE, 38, y2 + 28, 40, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblPName, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(hLblPName);
+
+        g_hEditProbeName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"自定义游戏服", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 80, y2 + 25, 120, 24, hWnd, (HMENU)ID_EDIT_PROBE_NAME, g_hInstance, NULL);
+        SendMessageW(g_hEditProbeName, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(g_hEditProbeName);
+
+        HWND hLblPHost = CreateWindowW(L"STATIC", L"IP/域名:", WS_CHILD | WS_VISIBLE, 210, y2 + 28, 55, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblPHost, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(hLblPHost);
+
+        g_hEditProbeHost = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"141.95.207.63", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 270, y2 + 25, 120, 24, hWnd, (HMENU)ID_EDIT_PROBE_HOST, g_hInstance, NULL);
+        SendMessageW(g_hEditProbeHost, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(g_hEditProbeHost);
+
+        HWND hLblPPort = CreateWindowW(L"STATIC", L"端口:", WS_CHILD | WS_VISIBLE, 400, y2 + 28, 40, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblPPort, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(hLblPPort);
+
+        g_hEditProbePort = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"8285", WS_CHILD | WS_VISIBLE | ES_NUMBER, 445, y2 + 25, 55, 24, hWnd, (HMENU)ID_EDIT_PROBE_PORT, g_hInstance, NULL);
+        SendMessageW(g_hEditProbePort, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(g_hEditProbePort);
+
+        HWND hBtnAddProbe = CreateWindowW(L"BUTTON", L"➕ 添加", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 510, y2 + 24, 60, 26, hWnd, (HMENU)ID_BTN_PROBE_ADD, g_hInstance, NULL);
+        SendMessageW(hBtnAddProbe, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(hBtnAddProbe);
+
+        HWND hBtnDelProbe = CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 575, y2 + 24, 55, 26, hWnd, (HMENU)ID_BTN_PROBE_DEL, g_hInstance, NULL);
+        SendMessageW(hBtnDelProbe, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab2Ctrls.push_back(hBtnDelProbe);
+
+        // ==================== TAB 3 控件布局 (订阅与配置) ====================
+        int y3 = 45;
+
+        HWND hGrpSub = CreateWindowW(L"BUTTON", L" 专线订阅管理 (支持 Base64 / Clash / Sing-box 订阅) ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 25, y3, 612, 130, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hGrpSub, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab3Ctrls.push_back(hGrpSub);
+
+        HWND hLblSubPri = CreateWindowW(L"STATIC", L"主订阅链接:", WS_CHILD | WS_VISIBLE, 38, y3 + 32, 80, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblSubPri, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(hLblSubPri);
+
+        g_hEditSubPri = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"http://<SERVER_IP>:3589/sub?token=<YOUR_TOKEN>", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 125, y3 + 29, 360, 24, hWnd, (HMENU)ID_EDIT_SUB_PRI, g_hInstance, NULL);
+        SendMessageW(g_hEditSubPri, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(g_hEditSubPri);
+
+        HWND hBtnFetchPri = CreateWindowW(L"BUTTON", L"拉取主订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 495, y3 + 27, 125, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_PRI, g_hInstance, NULL);
+        SendMessageW(hBtnFetchPri, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(hBtnFetchPri);
+
+        HWND hLblSubBak = CreateWindowW(L"STATIC", L"备订阅链接:", WS_CHILD | WS_VISIBLE, 38, y3 + 75, 80, 20, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hLblSubBak, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(hLblSubBak);
+
+        g_hEditSubBak = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 125, y3 + 72, 360, 24, hWnd, (HMENU)ID_EDIT_SUB_BAK, g_hInstance, NULL);
+        SendMessageW(g_hEditSubBak, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(g_hEditSubBak);
+
+        HWND hBtnFetchBak = CreateWindowW(L"BUTTON", L"拉取备订阅", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 495, y3 + 70, 125, 28, hWnd, (HMENU)ID_BTN_FETCH_SUB_BAK, g_hInstance, NULL);
+        SendMessageW(hBtnFetchBak, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(hBtnFetchBak);
+
+        y3 += 145;
+
+        HWND hGrpTools = CreateWindowW(L"BUTTON", L" 快捷工具与配置目录 ", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 25, y3, 612, 90, hWnd, NULL, g_hInstance, NULL);
+        SendMessageW(hGrpTools, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_Tab3Ctrls.push_back(hGrpTools);
+
+        HWND hBtnOpenDir = CreateWindowW(L"BUTTON", L"📂 打开核心所在目录", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 45, y3 + 35, 170, 32, hWnd, (HMENU)ID_BTN_OPEN_DIR, g_hInstance, NULL);
+        SendMessageW(hBtnOpenDir, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(hBtnOpenDir);
+
+        HWND hBtnReloadNodes = CreateWindowW(L"BUTTON", L"🔄 重新载入节点列表", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, y3 + 35, 170, 32, hWnd, (HMENU)ID_BTN_RELOAD_NODES, g_hInstance, NULL);
+        SendMessageW(hBtnReloadNodes, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(hBtnReloadNodes);
+
+        HWND hBtnEditConfigTab3 = CreateWindowW(L"BUTTON", L"📝 记事本编辑 config.json", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 415, y3 + 35, 200, 32, hWnd, (HMENU)ID_BTN_EDIT_CONFIG, g_hInstance, NULL);
+        SendMessageW(hBtnEditConfigTab3, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+        g_Tab3Ctrls.push_back(hBtnEditConfigTab3);
+
+        // 默认显示 Tab 1，隐藏 Tab 2 与 Tab 3
+        SwitchTab(0);
+
+        // 初始化数据
+        PopulateProbeListView();
         ReloadNodeList();
 
-        AppendLog(L"程序已就绪。专线加速与节点管理已加载。");
+        AppendLog(L"GUI 加载完成。已就绪。");
 
-        // 自动拉起 Sing-box 核心并开启自动监控注入
+        // 自动拉起 Sing-box 核心并开启对 Firestorm 的自动监控注入
         StartSingBox();
         ToggleAutoInject();
+        break;
+    }
+    case WM_NOTIFY: {
+        LPNMHDR pnm = (LPNMHDR)lParam;
+        if (pnm->hwndFrom == g_hTabCtrl && pnm->code == TCN_SELCHANGE) {
+            int curSel = TabCtrl_GetCurSel(g_hTabCtrl);
+            SwitchTab(curSel);
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        HWND hwndStatic = (HWND)lParam;
+
+        if (hwndStatic == g_hLabelSbStatus) {
+            wchar_t statusText[64] = { 0 };
+            GetWindowTextW(g_hLabelSbStatus, statusText, 64);
+            if (wcsstr(statusText, L"运行中")) {
+                SetTextColor(hdcStatic, RGB(16, 185, 129)); // 亮绿
+            } else {
+                SetTextColor(hdcStatic, RGB(148, 163, 184)); // 灰
+            }
+            SetBkMode(hdcStatic, TRANSPARENT);
+            return (LRESULT)g_hBrushBg;
+        }
+
+        if (hwndStatic == g_hLabelProbeTips) {
+            SetTextColor(hdcStatic, RGB(30, 41, 59)); // 稳重深灰蓝
+            SetBkMode(hdcStatic, TRANSPARENT);
+            return (LRESULT)g_hBrushBg;
+        }
+
+        SetBkMode(hdcStatic, TRANSPARENT);
+        SetTextColor(hdcStatic, RGB(31, 41, 55));
+        return (LRESULT)g_hBrushBg;
+    }
+    case WM_CTLCOLOREDIT: {
+        HDC hdcEdit = (HDC)wParam;
+        HWND hwndEdit = (HWND)lParam;
+        if (hwndEdit == g_hEditLog) {
+            SetTextColor(hdcEdit, RGB(74, 222, 128)); // 翠绿终端字
+            SetBkColor(hdcEdit, RGB(22, 27, 34));   // 深黑背景
+            return (LRESULT)g_hBrushDarkLog;
+        }
         break;
     }
     case WM_COMMAND: {
@@ -1003,6 +1467,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         case ID_BTN_FETCH_SUB_BAK:
             FetchSubscription(false);
             break;
+        case ID_BTN_PROBE_ALL:
+            RunProbeAll();
+            break;
+        case ID_BTN_PROBE_ADD:
+            AddCustomProbeTarget();
+            break;
+        case ID_BTN_PROBE_DEL:
+            DeleteSelectedProbeTarget();
+            break;
+        case ID_BTN_OPEN_DIR: {
+            wchar_t appDir[MAX_PATH];
+            GetAppDir(appDir, MAX_PATH);
+            ShellExecuteW(NULL, L"open", appDir, NULL, NULL, SW_SHOWNORMAL);
+            break;
+        }
+        case ID_BTN_RELOAD_NODES:
+            ReloadNodeList();
+            AppendLog(L"节点列表已重新载入。");
+            break;
         case ID_BTN_INJECT_PID: {
             wchar_t pidStr[32];
             GetWindowTextW(g_hEditPid, pidStr, 32);
@@ -1015,60 +1498,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
-        case ID_BTN_BROWSE: {
-            wchar_t szFile[MAX_PATH] = { 0 };
-            OPENFILENAMEW ofn = { sizeof(ofn) };
-            ofn.hwndOwner = g_hMainWnd;
-            ofn.lpstrFilter = L"可执行文件 (*.exe)\0*.exe\0所有文件 (*.*)\0*.*\0";
-            ofn.lpstrFile = szFile;
-            ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-            if (GetOpenFileNameW(&ofn)) {
-                SetWindowTextW(g_hEditGamePath, szFile);
-                wchar_t* name = wcsrchr(szFile, L'\\');
-                if (name) {
-                    SetWindowTextW(g_hEditTargetName, name + 1);
-                }
-            }
-            break;
-        }
-        case ID_BTN_LAUNCH_GAME: {
-            wchar_t gamePath[MAX_PATH];
-            GetWindowTextW(g_hEditGamePath, gamePath, MAX_PATH);
-            if (wcslen(gamePath) == 0) {
-                AppendLog(L"请先浏览选择游戏 .exe 文件！");
-                break;
-            }
-            StartSingBox();
-            wchar_t workDir[MAX_PATH];
-            wcsncpy(workDir, gamePath, MAX_PATH);
-            wchar_t* lastSlash = wcsrchr(workDir, L'\\');
-            if (lastSlash) *lastSlash = L'\0';
-
-            STARTUPINFOW si = { sizeof(si) };
-            PROCESS_INFORMATION pi = { 0 };
-            AppendLog(L"正在挂起启动游戏...");
-            if (CreateProcessW(gamePath, NULL, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, workDir, &si, &pi)) {
-                InjectDllByPid(pi.dwProcessId);
-                ResumeThread(pi.hThread);
-                CloseHandle(pi.hThread);
-                CloseHandle(pi.hProcess);
-                AppendLog(L"游戏已启动并恢复运行！");
-            } else {
-                AppendLog(L"启动游戏失败！");
-            }
-            break;
-        }
         }
         break;
     }
     case WM_DESTROY:
         if (g_bMonitoring) {
             g_bMonitoring = false;
-            if (g_hMonitorProcess) {
-                TerminateProcess(g_hMonitorProcess, 0);
-                g_hMonitorProcess = NULL;
-            }
             if (g_hMonitorThread) {
                 CloseHandle(g_hMonitorThread);
                 g_hMonitorThread = NULL;
@@ -1080,7 +1515,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             CloseHandle(g_hAutoInjectThread);
         }
         StopSingBox();
-        if (g_hFont) DeleteObject(g_hFont);
+        if (g_hFontNormal) DeleteObject(g_hFontNormal);
+        if (g_hFontBold) DeleteObject(g_hFontBold);
+        if (g_hFontConsole) DeleteObject(g_hFontConsole);
+        if (g_hBrushBg) DeleteObject(g_hBrushBg);
+        if (g_hBrushDarkLog) DeleteObject(g_hBrushDarkLog);
         PostQuitMessage(0);
         break;
     default:
@@ -1095,7 +1534,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_WIN95_CLASSES;
+    icex.dwICC = ICC_WIN95_CLASSES | ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&icex);
 
     WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
@@ -1104,16 +1543,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.lpszClassName = L"GameSpeedLauncherWndClass";
+    wc.lpszClassName = L"GameSpeedLauncherModernWndClass";
 
     if (!RegisterClassExW(&wc)) return 1;
 
     HWND hWnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         wc.lpszClassName,
-        L"Game TCP Speed - 专线游戏加速器 (订阅版)",
+        L"Game TCP Speed - 专线游戏加速器 (Firestorm 专版)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 565, 570,
+        CW_USEDEFAULT, CW_USEDEFAULT, 680, 615,
         NULL, NULL, hInstance, NULL
     );
 
