@@ -1,9 +1,9 @@
 <div align="center">
 
-# ⚡ Game-TCP-Speed
+# Game-TCP-Speed
 
-### 针对 Windows 进程级 TCP 专线游戏加速方案（零 TUN 网卡 / 零网关抢占）
-*(以魔兽世界 Firestorm 11.2.5 客户端及专用登录器深度适配为例)*
+### Windows 进程级 TCP 游戏加速工具（无需 TUN 虚拟网卡 / 不改写系统网关）
+*(以魔兽世界 Firestorm 11.2.5 客户端及专用登录器适配为例)*
 
 [![C++11](https://img.shields.io/badge/Language-C%2B%2B11-00599C?style=flat-square&logo=c%2B%2B)](c/)
 [![MinHook](https://img.shields.io/badge/Hook-MinHook%20x64-brightgreen?style=flat-square)](c/minhook/)
@@ -12,53 +12,53 @@
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-success?style=flat-square)](README.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-[核心原理](#-核心原理与设计哲学) •
+[工作原理](#-工作原理与架构) •
 [功能特性](#-功能特性) •
-[快速开始](#-快速开始指南) •
-[技术内幕](#-深度技术内幕与踩坑实录) •
-[项目目录](#-项目目录结构) •
-[English Version](#-english-version)
+[快速开始](#-快速开始) •
+[技术要点](#-技术要点与排查记录) •
+[目录结构](#-项目目录结构) •
+[English Documentation](#-english-documentation)
 
 </div>
 
 ---
 
-## 🇨🇳 中文说明 (Chinese Documentation)
+## 🇨🇳 中文说明
 
-### 📖 项目背景与愿景
+### 项目背景
 
-在跨国网络游戏（如魔兽世界海外私服、最终幻想14、暗黑破坏神等）场景中，游戏服务器通常部署在欧洲（如法国 OVH 机房）或北美。国内家庭宽带直连跨国公网出口时，常常遭遇剧烈抖动、20%~30% 高丢包率，甚至因骨干网策略导致 TCP RST 阻断，引发游戏读条卡死、秒断或掉线。
+跨国网络游戏（如魔兽世界海外私服/官服、最终幻想14、暗黑破坏神等）的服务器多位于欧洲或北美。国内宽带直连时容易遇到延迟抖动、丢包或骨干网 TCP RST 阻断，导致登录失败或频繁掉线。
 
-市面上传统的网络加速器大多采用 **TUN / TAP 虚拟网卡模式**，强行改写 Windows 系统的默认网关：
-- ❌ **严重抢占网络**：导致开发环境（Docker、WSL2、Hyper-V）、公司内网 VPN、日常代理工具（如 Clash、Sing-box）产生全局路由死锁与冲突；
-- ❌ **不适配第三方登录器**：魔兽私服普遍依赖定制登录器（如 `FirestormLauncher.exe`）进行动态补丁与验证，商业加速器往往难以精准拦截；
-- ❌ **网络代答虚假延迟**：部分驱动工具会在本地内核虚假代答 SYN，制造 2ms 延迟假象，实际游戏依然严重卡顿。
+市面上常见的加速方案多依赖 TUN/TAP 虚拟网卡改写全局网关，这在实际使用中有几个典型痛点：
+- 改写系统路由表，容易与本地开发环境（Docker、WSL2、Hyper-V）、公司 VPN 或现有代理工具冲突；
+- 部分私服依赖第三方定制登录器（如 `FirestormLauncher.exe`）启动游戏主程序，商业加速器容易漏掉目标进程；
+- 某些底层驱动会在本地代答 TCP SYN，显示虚假低延迟，但实际游戏依然丢包。
 
-**本项目打破以上痛点**：不创建任何虚拟网卡、不修改系统默认路由、不干扰现有代理。通过**用户态 Winsock API Hook 注入**与**随机端口隔离**，实现应用级精准 TCP 进程加速，结合 **AnyTLS + Reality** 纯净直传专线，打造纯原生、零冲突、秒级自愈的加速方案。
+本项目采用用户态 Winsock API Hook，只针对指定游戏进程（如 `WoW 11.2.5 - Firestorm.exe`）拦截并重定向 TCP 连接，不安装虚拟网卡，不修改系统路由表。配合 AnyTLS + Reality 纯净流式传输，在不影响系统其他网络应用的前提下改善游戏连接质量。
 
 ---
 
-### 🏗️ 核心原理与设计哲学
+### 架构与工作原理
 
 ```mermaid
 flowchart TD
-    subgraph UserSpace["用户桌面与操作区"]
+    subgraph UserSpace["用户桌面环境"]
         Launcher["第三方登录器\n(FirestormLauncher.exe)"]
         Game["游戏主程序\n(WoW 11.2.5 - Firestorm.exe)"]
-        GUI["Win32 原生控制台\n(launcher_gui.exe)"]
+        GUI["控制台界面\n(launcher_gui.exe)"]
     end
 
-    subgraph CoreEngine["本地加速引擎 (零驱动 / 零网关修改)"]
+    subgraph CoreEngine["本地代理核心 (无驱动 / 不改网关)"]
         HookDLL["hook_proxy.dll\n(MinHook 拦截 connect/WSAConnect)"]
-        SingBox["Sing-box 独立核心\n(动态随机端口监听)"]
-        Config["proxy_config.ini\n(端口热更新调度)"]
+        SingBox["Sing-box 核心\n(动态随机端口监听)"]
+        Config["proxy_config.ini\n(端口热更新)"]
     end
 
-    subgraph UplinkTunnel["跨国加密专线链路"]
-        AnyTLS["极速专线: AnyTLS + Reality\n(TCP 隧道直连 / 零 Padding 长度混淆 / 完美过白)"]
+    subgraph UplinkTunnel["网络传输链路"]
+        AnyTLS["AnyTLS + Reality\n(标准 TCP 隧道直连 / 去除 Padding 填充)"]
     end
 
-    subgraph RemoteTarget["远端海外游戏服务器"]
+    subgraph RemoteTarget["远端游戏服务器"]
         Server["Firestorm 世界服务器\n(141.95.207.63 : 8285 / 1119)"]
     end
 
@@ -70,153 +70,151 @@ flowchart TD
 
     Game -->|TCP connect 目标 141.95.207.63| HookDLL
     HookDLL -->|拦截并重定向 (Socks5 握手)| SingBox
-    Config -.->|热读取最新端口| HookDLL
+    Config -.->|读取最新端口| HookDLL
 
-    SingBox -->|透明代理直连| AnyTLS
-    AnyTLS -->|稳定交付| Server
+    SingBox -->|透明直连| AnyTLS
+    AnyTLS -->|交付数据| Server
 ```
 
-#### 关键架构原则：
-1. **纯应用层透明重定向**：在游戏调用 `connect()` / `WSAConnect()` 瞬间，将目标 IP 与端口透明重定向至本地 Sing-box 代理端口，完成 Socks5 握手后欺骗游戏返回成功，游戏流量全量走专线。
-2. **非阻塞套接字与异步事件无缝还原**：拦截握手期间临时切入阻塞模式并在 2.5 秒内完成 Socks5 协商，握手成功后**100% 恢复套接字原始非阻塞状态**并主动补发 `WSAEVENT` / `FD_CONNECT` 信号，彻底根治游戏主线程卡死无响应。
-3. **端口动态安全协商**：每次启动 Sing-box 时动态绑定 0 端口向系统申请空闲高位端口（`50000–65535`），避开系统保留段，杜绝端口冲突（`10061`）。
-4. **DLL 运行时配置热更新**：`hook_proxy.dll` 拦截时动态检查 `proxy_config.ini` 修改，GUI 无论何时更换端口，DLL 毫秒级自动热同步，无需重启游戏。
+#### 实现要点：
+1. **应用层连接重定向**：在游戏调用 `connect()` 或 `WSAConnect()` 时，将目标地址与端口重定向至本地 Sing-box 监听端口，完成 Socks5 握手后再通知游戏连接成功。
+2. **套接字非阻塞状态与事件还原**：游戏引擎通常使用非阻塞套接字和事件通知机制（如 `WSAEventSelect`）。Hook 层在临时阻塞模式下完成 Socks5 协商后，会恢复套接字原始的非阻塞模式，并补发 `FD_CONNECT` 事件，避免游戏主线程挂起。
+3. **动态高位端口**：Sing-box 启动时申请系统空闲的高位端口（`50000–65535`），避免固定端口被占用导致启动失败。
+4. **配置热同步**：`hook_proxy.dll` 拦截连接时会检查 `proxy_config.ini` 的端口配置，GUI 更换端口后动态生效，无需重启游戏。
 
 ---
 
-### ✨ 功能特性
+### 功能特性
 
-| 功能模块 | 说明与优势 |
+| 模块 | 说明 |
 | :--- | :--- |
-| **🚀 零 TUN 进程级加速** | 基于 MinHook 拦截 Winsock，完全在用户态实现流量改道，不装虚拟网卡、不改系统路由表。 |
-| **🛡️ 零阻塞防卡死引擎** | 智能记录套接字模式，握手后秒级还原非阻塞状态并补发事件信号，游戏主线程永久流畅响应。 |
-| **⚡ AnyTLS-Reality 纯净专线** | 彻底去除 `padding_scheme` 混淆长度填充，保证魔兽世界 SRP 认证与世界服数据包 100% 原始透明转发。 |
-| **🔒 端口冲突免疫** | 启动时自动申请未占用高位随机端口，自动写入配置，彻底消除端口占用冲突。 |
-| **💉 登录器全自动监控注入** | 内置高效的后台快照检测线程，命中 `WoW 11.2.5 - Firestorm.exe` 瞬间自动注入，支持先开登录器或先开加速器。 |
-| **📦 纯 C++ 原生免安装** | 彻底剥离 Python 依赖，单文件 C++ 静态编译，包含 Winsock 高精度端到端测速与 WinINet 订阅拉取。 |
+| **进程级拦截** | 基于 MinHook 拦截 Winsock API，仅在用户态接管目标进程网络流量，不安装虚拟网卡，不修改系统路由表。 |
+| **套接字状态保护** | 记录套接字原有模式，Socks5 协商完成后恢复非阻塞状态并补发事件信号，避免界面挂起。 |
+| **透明流式传输** | 配置中去除 `padding_scheme` 填充，避免破坏游戏 SRP 认证包长度导致断连。 |
+| **动态端口分配** | 运行时自动申请空闲高位端口并写入配置文件，避免固定端口冲突。 |
+| **进程自动检测注入** | 后台循环检测目标游戏进程，进程启动后自动注入 DLL，无需手动附加。 |
+| **纯 C++ 实现** | 采用 C++ 静态编译，内置基于 Winsock 的延迟测试与 WinINet 订阅获取，无需外部 Python 运行环境。 |
 
 ---
 
-### 🚀 快速开始指南
+### 快速开始
 
 #### 1. 运行加速器
-直接右键以**管理员身份运行**：
+右键以**管理员身份运行**：
 ```text
 c\launcher_gui.exe
 ```
 
-#### 2. 自动启动加速
-- 启动器界面打开后，会自动随机分配可用端口、启动 Sing-box 核心并开启对 `WoW 11.2.5 - Firestorm.exe` 的后台监听。
-- 此时直接使用第三方登录器启动游戏（或直接运行游戏主程序），控制台将自动打印：
+#### 2. 启动游戏
+- 启动器界面打开后，会自动分配可用端口、启动 Sing-box 核心并开启对 `WoW 11.2.5 - Firestorm.exe` 的后台监听。
+- 此时直接使用第三方登录器启动游戏（或直接运行游戏主程序），控制台将显示注入成功提示：
   ```text
   √ 成功注入加速模块至魔兽进程 (PID: xxx)！
   ```
-- 游戏主界面将秒级加载完成并建立专线加速连接。
+- 游戏主界面启动后即可正常通过代理隧道建立连接。
 
 ---
 
-### 🔬 深度技术内幕与踩坑实录
+### 技术要点与排查记录
 
-#### 1. 魔兽世界主线程卡死无响应根因与解决
-- **现象**：游戏进程被注入后，窗口黑屏或无响应卡死在登录界面。
-- **排查**：魔兽世界网络引擎深度依赖非阻塞 Socket 与 Windows 异步事件（`WSAEventSelect`）。先前版本在 Hook `connect` 时临时切入阻塞模式执行 Socks5 握手，但完成后未还原非阻塞标志，导致游戏主线程在调用 `recv` 时陷入死锁。
-- **解决**：在 [`hook_proxy.cpp`](file:///E:/code/game-tcp-speed/c/dll/hook_proxy.cpp) 中全量 Hook `ioctlsocket`、`WSAEventSelect` 和 `WSAAsyncSelect`，记录 Socket 原始状态，握手完成后立即恢复非阻塞，并主动触发 `SetEvent` 及 `FD_CONNECT` 消息通知，彻底消除卡死。
+#### 1. 注入后游戏窗口卡死无响应
+- **原因**：魔兽世界客户端使用非阻塞套接字与异步事件通知机制（`WSAEventSelect`）。如果在 Hook `connect` 期间临时转为阻塞模式执行 Socks5 握手，但在握手后未恢复非阻塞状态，会导致游戏主线程在后续等待网络数据时陷入死锁。
+- **处理**：在 `hook_proxy.cpp` 中 Hook `ioctlsocket`、`WSAEventSelect` 和 `WSAAsyncSelect`，保存套接字的原始模式与事件句柄。握手成功后立即恢复非阻塞模式，并调用 `SetEvent` 触发 `FD_CONNECT` 通知，使游戏事件循环继续运转。
 
-#### 2. 魔兽世界连接时报错“已断开连接”根因
-- **现象**：游戏能进入登录界面，但连接世界服（`8285` 端口）瞬间弹出“已断开连接”。
-- **排查**：服务端节点启用了针对 Web 的 `padding_scheme`（长度混淆填充方案）。魔兽世界的 SRP 认证握手包对二进制长度极其敏感，强行填充导致数据格式被破坏，游戏客户端主动中断连接。
-- **解决**：服务端与客户端配置中彻底移除 `padding_scheme`，恢复原始透明流式直传；同时在服务端内核禁用 `tcp_fastopen` 与 `tcp_tw_reuse`，保证游戏长连接绝对平稳。
+#### 2. 登录或进入世界服时提示“已断开连接”
+- **原因**：服务端启用了 `padding_scheme` 长度填充。魔兽世界的 SRP 认证协议对数据包长度敏感，填充改变了包体长度导致客户端校验失败断开。此外，服务端如果开启 TCP FastOpen 或开启连接复用（`tcp_tw_reuse`），在经过家庭宽带 NAT 后也容易触发重置或丢包。
+- **处理**：移除服务端与客户端配置中的 `padding_scheme`，恢复原生流式传输；在 Linux 服务端内核配置中将 `net.ipv4.tcp_fastopen` 与 `net.ipv4.tcp_tw_reuse` 均设为 0。
 
 ---
 
-### 📁 项目目录结构
+### 项目目录结构
 
 ```text
 game-tcp-speed/
 ├── ai.md                             # AI 协作与维护规范文档
-├── README.md                         # 中英文全景技术文档与使用说明
-├── setupAnytls.md                    # AnyTLS 纯净服务端与看门狗部署手册
+├── README.md                         # 中英文技术文档与使用说明
+├── setupAnytls.md                    # AnyTLS 服务端与守护进程配置参考
 ├── LICENSE                           # MIT 开源许可证
 │
-├── c/                                # 【核心生产级】纯 C++ Winsock Hook 与原生 GUI
+├── c/                                # 纯 C++ Winsock Hook 与原生 GUI
 │   ├── CMakeLists.txt                # CMake 构建脚本 (Ninja 构建系统)
-│   ├── build.ps1 / build.bat         # 自动化一键编译脚本
+│   ├── build.ps1 / build.bat         # 自动化编译脚本
 │   ├── hook_proxy.dll                # Winsock 动态拦截核心 (支持非阻塞还原与端口热更新)
 │   ├── launcher_gui.exe              # 原生 Win32 控制台界面 (零依赖)
 │   ├── proxy_config.ini              # 运行时随机端口与配置
 │   ├── dll/hook_proxy.cpp            # MinHook 拦截实现源码
 │   ├── gui/launcher_gui.cpp          # Win32 原生界面与注入引擎源码
-│   └── minhook/                      # MinHook x64 开源底层库
+│   └── minhook/                      # MinHook x64 底层库
 │
 ├── Sing-box/                         # 独立 Sing-box 核心环境
-│   ├── sing-box.exe                  # Sing-box 稳定版核心
-│   └── config.json                   # AnyTLS-Reality 纯净专线配置 (零 Padding)
+│   ├── sing-box.exe                  # Sing-box 运行核心
+│   └── config.json                   # AnyTLS-Reality 专线配置 (去除 Padding)
 │
 ├── tools/                            # 系统协议栈与底层驱动维护工具
 │   ├── set_proxifier_demand.cmd      # 将 ProxifierDrv 驱动改为按需启动 (demand)
-│   ├── disable_proxifier_driver.cmd  # 彻底停止并禁用 Proxifier 驱动
+│   ├── disable_proxifier_driver.cmd  # 停止并禁用 Proxifier 驱动
 │   └── enable_proxifier_driver.cmd   # 恢复 Proxifier 驱动运行
 │
 └── docs/                             # 技术设计与效果验证报告
-    ├── 加速器效果验证.md             # 延迟与丢包率对比报告
-    └── 独立sing-box使用说明.md        # 独立核心架构设计手册
+    ├── 加速器效果验证.md             # 延迟与丢包率对比测试
+    └── 独立sing-box使用说明.md        # 独立核心运行手册
 ```
 
 ---
 
-## 🇺🇸 English Version
+## 🇺🇸 English Documentation
 
-### 📖 Overview & Vision
+### Overview
 
-In cross-border gaming scenarios (e.g., World of Warcraft overseas private/retail servers, FFXIV, Diablo), servers are typically hosted in Europe (such as OVH in France) or North America. Direct connection over public ISP lines often suffers from **severe packet loss (20%–30%), jitter, and TCP RST drops**, causing disconnects and high latency.
+Cross-border online gaming often involves routing traffic to servers in Europe or North America. Direct connections from residential ISPs frequently encounter packet loss, jitter, or TCP RST drops from backbone gateways, leading to login failures or unexpected disconnections.
 
-Traditional commercial game accelerators rely on **TUN/TAP virtual network adapters**, rewriting default routing tables:
-- ❌ **Routing Conflicts**: Clashes with VPNs, Docker, WSL2, and corporate proxies;
-- ❌ **Poor Custom Launcher Compatibility**: Ineffective for custom launchers (e.g. `FirestormLauncher.exe`);
-- ❌ **Fake Latency Acknowledgement**: Driver-based tools often fake 2ms SYN-ACKs in kernel space while the real game connection lags.
+Most traditional accelerators rely on TUN/TAP virtual network adapters to modify the system default gateway:
+- Modifying the routing table can conflict with local development environments (Docker, WSL2, Hyper-V), corporate VPNs, or existing proxy tools;
+- Private gaming servers often rely on custom launchers (such as `FirestormLauncher.exe`), which driver-based tools may fail to capture;
+- Certain low-level drivers generate synthetic TCP SYN acknowledgments locally, presenting misleadingly low latency figures while the actual connection still suffers from packet loss.
 
-**Game-TCP-Speed solves these problems**: Zero TUN adapters, zero gateway modifications, zero proxy conflicts. Utilizing **user-mode Winsock API Hooking** and **dynamic port negotiation**, it provides precise process-level TCP acceleration powered by **AnyTLS + Reality** transparent tunneling.
-
----
-
-### 🏗️ Architecture & Principles
-
-1. **User-Mode Transparent Redirection**: When the target game calls `connect()` or `WSAConnect()`, the destination IP/port is seamlessly hijacked to the local Sing-box proxy port, performing a quick Socks5 handshake before returning control to the game.
-2. **Non-Blocking Socket State Restoration**: Hooks track `ioctlsocket`, `WSAEventSelect`, and `WSAAsyncSelect`. Sockets are temporarily set to blocking mode during the handshake (with a 2.5s safety timeout) and **100% restored to their original non-blocking state** with manual `FD_CONNECT` signaling. This prevents game main-thread freezes.
-3. **Zero Port Collisions**: Dynamically allocates random unreserved high ports (`50000–65535`) on each run.
-4. **Runtime Config Hot-Reload**: `hook_proxy.dll` dynamically reads `proxy_config.ini` upon connection, allowing port sync without restarting the game.
+Game-TCP-Speed uses user-mode Winsock API hooking to redirect network connections solely for the target game process (e.g., `WoW 11.2.5 - Firestorm.exe`). It operates without virtual network adapters or routing table modifications. Combined with AnyTLS + Reality streaming, it stabilizes game connectivity without affecting other desktop applications.
 
 ---
 
-### ✨ Features
+### Implementation Details
+
+1. **Application-Level Redirection**: Captures calls to `connect()` and `WSAConnect()`, redirecting target destinations to a local Sing-box listener and executing the Socks5 handshake before returning control to the game.
+2. **Socket Non-Blocking Restoration**: Tracks socket state via `ioctlsocket`, `WSAEventSelect`, and `WSAAsyncSelect`. After completing the handshake in temporary blocking mode, it restores the socket's original non-blocking state and signals `FD_CONNECT` to keep the game's event loop moving.
+3. **Dynamic Port Binding**: Obtains an unreserved high port (`50000–65535`) from the operating system upon starting Sing-box, preventing port collision errors.
+4. **Configuration Hot-Reload**: `hook_proxy.dll` re-reads `proxy_config.ini` during connection attempts, allowing GUI port updates to take effect without restarting the game.
+
+---
+
+### Features
 
 | Feature | Description |
 | :--- | :--- |
-| **🚀 Zero-TUN Process Acceleration** | Hijacks Winsock traffic entirely in user space via MinHook without installing virtual network adapters. |
-| **🛡️ Anti-Freeze Socket Engine** | Full non-blocking socket mode tracking and asynchronous event signaling to prevent UI lockups. |
-| **⚡ AnyTLS-Reality Dedicated Tunnel** | Zero `padding_scheme` length obfuscation, ensuring 100% transparent binary forwarding for WoW SRP authentication. |
-| **🔒 Port Conflict Immunity** | Dynamic high-port binding eliminates `10061` connection refused errors. |
-| **💉 Automated Launcher Hooking** | Background process watcher immediately injects into `WoW 11.2.5 - Firestorm.exe`. |
-| **📦 Pure Native C++ Implementation** | Zero Python dependencies. Compact Win32 UI with built-in Winsock RTT latency measurement and WinINet subscription downloader. |
+| **Process-Level Interception** | Uses MinHook to intercept Winsock calls in user mode. No virtual network adapters or routing table modifications required. |
+| **Socket Mode Preservation** | Tracks socket modes and restores non-blocking states and event signals after Socks5 handshakes, preventing main-thread lockups. |
+| **Transparent Streaming** | Disables `padding_scheme` length obfuscation to protect binary SRP packet lengths from corruption. |
+| **Dynamic Port Allocation** | Requests available high ports at runtime and updates configuration dynamically to avoid conflicts. |
+| **Automated Injection** | Periodically checks for the target process in the background and injects the DLL once detected. |
+| **Native C++ Implementation** | Compiled as pure C++ without Python runtime dependencies, featuring built-in Winsock RTT testing and WinINet subscription retrieval. |
 
 ---
 
-### 🚀 Quick Start
+### Quick Start
 
 1. Right-click and **Run as Administrator**:
    ```text
    c\launcher_gui.exe
    ```
-2. The launcher will automatically start the Sing-box core on a random port and begin monitoring for `WoW 11.2.5 - Firestorm.exe`.
-3. Launch your game via the Firestorm launcher. The console will display:
+2. The launcher automatically allocates an available port, starts the Sing-box core, and monitors for `WoW 11.2.5 - Firestorm.exe`.
+3. Launch the game client or custom launcher. The console will report successful injection:
    ```text
    √ 成功注入加速模块至魔兽进程 (PID: xxx)！
    ```
-   Enjoy ultra-stable, accelerated gameplay!
+4. The game will establish its network connection through the local tunnel.
 
 ---
 
-### 📄 License
+### License
 
 Distributed under the [MIT License](LICENSE).
-Built with [MinHook](https://github.com/TsudaKageyu/minhook) & [Sing-box](https://github.com/SagerNet/sing-box).
+Uses [MinHook](https://github.com/TsudaKageyu/minhook) and [Sing-box](https://github.com/SagerNet/sing-box).

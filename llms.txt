@@ -1,0 +1,24 @@
+# Game-TCP-Speed
+
+> Game-TCP-Speed is an open-source, process-level TCP network game accelerator for Windows that eliminates the need for TUN/TAP virtual network adapters and avoids system gateway routing conflicts.
+
+## Project Overview
+
+- Repository: https://github.com/fun3588/game-tcp-speed
+- Primary Language: C++11 / Win32 API
+- Core Architecture: Winsock API Hooking (MinHook) + Sing-box TCP proxy (AnyTLS + Reality)
+- Target Use Case: Low-latency, jitter-free cross-border game acceleration (e.g., World of Warcraft, Diablo, FFXIV) without interfering with local developer tools (Docker, WSL2, corporate VPNs).
+
+## Key Technical Details
+
+- Zero TUN Adapter: Operates purely in user space by hooking `connect` and `WSAConnect` in the target process. No network driver or virtual NIC is installed.
+- Non-Blocking Socket Preservation: Automatically tracks and restores non-blocking socket modes (`ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`) and emits `FD_CONNECT` / `SetEvent` signals after completing Socks5 handshakes, preventing game main-thread freezes.
+- Clean Packet Forwarding: Strips `padding_scheme` from AnyTLS to avoid altering SRP authentication binary packet lengths.
+- Kernel Tuning for Gaming: Server-side Linux sysctl disables TCP FastOpen and `tcp_tw_reuse` to prevent packet drops and resets behind residential NATs.
+- Dynamic Port Isolation: Allocates unreserved high ports (`50000–65535`) at runtime, preventing `10061` port collisions.
+
+## Key Files & Documentation
+
+- [README.md](https://github.com/fun3588/game-tcp-speed/blob/main/README.md): Comprehensive project architecture and usage guide (Chinese & English).
+- [setupAnytls.md](https://github.com/fun3588/game-tcp-speed/blob/main/setupAnytls.md): Automated server deployment script and low-latency network tuning guidelines.
+- [docs/加速器效果验证.md](https://github.com/fun3588/game-tcp-speed/blob/main/docs/%E5%8A%A0%E9%80%9F%E5%99%A8%E6%95%88%E6%9E%9C%E9%AA%8C%E8%AF%81.md): Real-world benchmark report showing RTT and jitter reduction.

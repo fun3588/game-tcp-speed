@@ -1,4 +1,4 @@
-# 独立 Sing-box 运行手册 (Standalone Sing-box User Manual)
+# 独立 Sing-box 运行说明 (Standalone Sing-box User Manual)
 
 [中文说明](#-中文说明) • [English Documentation](#-english-documentation)
 
@@ -6,24 +6,24 @@
 
 ## 🇨🇳 中文说明
 
-本目录包含了用于游戏流量转发的独立 Sing-box 核心及其 AnyTLS 纯净专线配置。
+本项目附带了用于流量转发的独立 Sing-box 核心及其配置。
 
 ### 核心特性
 
-1. **独立运行隔离**：
-   - 与本地任何其他第三方代理软件（如 Throne、Clash 等）完全隔离，不共享端口、不共用进程。
-2. **AnyTLS + Reality 纯净配置**：
-   - 采用标准 TCP 封装出站，彻底移除 `padding_scheme`，确保魔兽世界等网游 SRP 二进制握手数据包零修改、零篡改透明直达目标海外服务器。
-3. **随机动态端口入站**：
-   - 入站类型为 `mixed`（同时支持 HTTP 与 SOCKS5 代理），每次由外层启动器在 `50000–65535` 范围内动态分配可用端口，彻底杜绝端口冲突（`10061`）。
+1. **进程隔离**：
+   - 作为独立后台进程运行，不与其他本地代理软件共享端口或配置文件。
+2. **AnyTLS + Reality 配置**：
+   - 采用标准 TCP 出站，去除 `padding_scheme` 填充，避免修改游戏客户端的二进制握手包格式。
+3. **动态端口监听**：
+   - 监听类型为 `mixed`（兼容 HTTP 与 SOCKS5），由外层启动器在 `50000–65535` 范围内动态分配可用端口，避免固定端口被其他程序占用。
 
 ### 常用命令
 
-- **语法检查配置**：
+- **检查配置文件语法**：
   ```cmd
   sing-box.exe check -c config.json
   ```
-- **命令行测试运行**：
+- **命令行启动**：
   ```cmd
   sing-box.exe run -c config.json
   ```
@@ -32,16 +32,16 @@
 
 ## 🇺🇸 English Documentation
 
-This directory contains the standalone Sing-box core and its clean AnyTLS dedicated configuration.
+This directory contains the standalone Sing-box core and its AnyTLS configuration for traffic forwarding.
 
 ### Core Features
 
-1. **Process & Network Isolation**:
-   - Completely independent from third-party proxies (e.g., Throne, Clash). No shared ports or process interference.
-2. **Clean AnyTLS + Reality Configuration**:
-   - Uses standard TCP transport without `padding_scheme`, ensuring zero payload manipulation for World of Warcraft binary SRP handshakes.
-3. **Dynamic Port Mixed Inbound**:
-   - Supports both HTTP and SOCKS5 on dynamically assigned ports (`50000–65535`), avoiding `10061` port conflicts.
+1. **Process Isolation**:
+   - Runs independently as a local process without sharing ports or configurations with third-party proxy clients.
+2. **AnyTLS + Reality Configuration**:
+   - Standard TCP transport without `padding_scheme` length padding, avoiding modifications to binary game packets.
+3. **Dynamic Port Inbound**:
+   - Uses `mixed` inbound (supporting HTTP and SOCKS5) bound to a high port (`50000–65535`) allocated dynamically by the launcher to prevent port conflicts.
 
 ### Common Commands
 
