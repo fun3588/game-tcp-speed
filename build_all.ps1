@@ -23,7 +23,8 @@ $dstExe = Join-Path $distDir "GameTcpSpeed.exe"
 try {
     Copy-Item $srcExe $dstExe -Force
 } catch {
-    Rename-Item $dstExe "GameTcpSpeed.exe.old" -Force -ErrorAction SilentlyContinue
+    $ts = Get-Date -Format "yyyyMMdd_HHmmss"
+    Rename-Item $dstExe "GameTcpSpeed.exe.$ts.old" -Force -ErrorAction SilentlyContinue
     Copy-Item $srcExe $dstExe -Force
 }
 
@@ -32,7 +33,8 @@ $dstDll = Join-Path $distDir "hook_proxy.dll"
 try {
     Copy-Item $srcDll $dstDll -Force
 } catch {
-    Rename-Item $dstDll "hook_proxy.dll.old" -Force -ErrorAction SilentlyContinue
+    $ts = Get-Date -Format "yyyyMMdd_HHmmss"
+    Rename-Item $dstDll "hook_proxy.dll.$ts.old" -Force -ErrorAction SilentlyContinue
     Copy-Item $srcDll $dstDll -Force
 }
 

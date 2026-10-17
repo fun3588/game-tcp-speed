@@ -440,13 +440,24 @@ static BOOL InjectDllByPid(DWORD pid) {
     LPTHREAD_START_ROUTINE pLoadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW");
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, pLoadLibrary, pRemoteMem, 0, NULL);
 
+    DWORD hRemoteModule = 0;
     if (hThread) {
         WaitForSingleObject(hThread, 5000);
+        GetExitCodeThread(hThread, &hRemoteModule);
         CloseHandle(hThread);
     }
 
     VirtualFreeEx(hProcess, pRemoteMem, 0, MEM_RELEASE);
     CloseHandle(hProcess);
+
+    if (hRemoteModule == 0) {
+        wchar_t errMsg[128];
+        _snwprintf(errMsg, sizeof(errMsg)/sizeof(wchar_t),
+                   L(L"✖ 注入 PID %lu 失败: 远程 LoadLibraryW 返回 NULL (目标可能正受保护或权限受限)",
+                     L"✖ Inject PID %lu failed: remote LoadLibrary returned NULL"), pid);
+        AppendLog(errMsg);
+        return FALSE;
+    }
 
     g_InjectedPids.insert(pid);
     wchar_t msg[128];

@@ -102,39 +102,71 @@ static void RefreshConfigIfNeeded() {
     }
 }
 
-// 确保在阻塞模式下发送完所有字节
-static BOOL SendAll(SOCKET s, const char* buf, int len) {
+// 确保跨平台兼容阻塞与非阻塞套接字的精准超时发送
+static BOOL SendAllTimed(SOCKET s, const char* buf, int len, int timeoutMs = 2500) {
     int total = 0;
     while (total < len) {
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(s, &wfds);
+        timeval tv;
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+        int sel = select(0, NULL, &wfds, NULL, &tv);
+        if (sel <= 0) return FALSE;
+
         int n = send(s, buf + total, len - total, 0);
-        if (n <= 0) return FALSE;
+        if (n <= 0) {
+            int err = WSAGetLastError();
+            if (err == WSAEWOULDBLOCK) {
+                Sleep(1);
+                continue;
+            }
+            return FALSE;
+        }
         total += n;
     }
     return TRUE;
 }
 
-// 确保在阻塞模式下接收完指定字节
-static BOOL RecvAll(SOCKET s, char* buf, int len) {
+// 确保跨平台兼容阻塞与非阻塞套接字的精准超时接收
+static BOOL RecvAllTimed(SOCKET s, char* buf, int len, int timeoutMs = 2500) {
     int total = 0;
     while (total < len) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(s, &rfds);
+        timeval tv;
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+        int sel = select(0, &rfds, NULL, NULL, &tv);
+        if (sel <= 0) return FALSE;
+
         int n = recv(s, buf + total, len - total, 0);
-        if (n <= 0) return FALSE;
+        if (n <= 0) {
+            int err = WSAGetLastError();
+            if (err == WSAEWOULDBLOCK) {
+                Sleep(1);
+                continue;
+            }
+            return FALSE;
+        }
         total += n;
     }
     return TRUE;
 }
 
-// 执行 Socks5 TCP 握手 (IPv4)
+// 执行 Socks5 TCP 握手 (IPv4，基于 select 超时驱动，完全无损兼容非阻塞套接字)
 static BOOL DoSocks5Handshake(SOCKET s, unsigned long target_ip_be, unsigned short target_port_be) {
     // 1. 发送版本与认证协商：\x05 \x01 \x00 (Socks5, 1种认证, 无认证)
     char authReq[3] = { 0x05, 0x01, 0x00 };
-    if (!SendAll(s, authReq, 3)) {
+    if (!SendAllTimed(s, authReq, 3)) {
         WriteLog("[Socks5] 发送认证请求失败 (WSAGetLastError=%d)", WSAGetLastError());
         return FALSE;
     }
 
     char authResp[2];
-    if (!RecvAll(s, authResp, 2)) {
+    if (!RecvAllTimed(s, authResp, 2)) {
         WriteLog("[Socks5] 接收认证应答失败");
         return FALSE;
     }
@@ -153,14 +185,14 @@ static BOOL DoSocks5Handshake(SOCKET s, unsigned long target_ip_be, unsigned sho
     memcpy(&connReq[4], &target_ip_be, 4);
     memcpy(&connReq[8], &target_port_be, 2);
 
-    if (!SendAll(s, connReq, 10)) {
+    if (!SendAllTimed(s, connReq, 10)) {
         WriteLog("[Socks5] 发送 CONNECT 请求失败");
         return FALSE;
     }
 
     // 3. 读取 CONNECT 响应
     char connRespHead[4];
-    if (!RecvAll(s, connRespHead, 4)) {
+    if (!RecvAllTimed(s, connRespHead, 4)) {
         WriteLog("[Socks5] 读取 CONNECT 响应头失败");
         return FALSE;
     }
@@ -176,7 +208,7 @@ static BOOL DoSocks5Handshake(SOCKET s, unsigned long target_ip_be, unsigned sho
         remainingLen = 4 + 2;
     } else if (connRespHead[3] == 0x03) { // 域名 (1字节长度 + N + 2字节 Port)
         char domainLen = 0;
-        if (!RecvAll(s, &domainLen, 1)) return FALSE;
+        if (!RecvAllTimed(s, &domainLen, 1)) return FALSE;
         remainingLen = (unsigned char)domainLen + 2;
     } else if (connRespHead[3] == 0x04) { // IPv6 (16字节 + 2字节 Port)
         remainingLen = 16 + 2;
@@ -184,7 +216,7 @@ static BOOL DoSocks5Handshake(SOCKET s, unsigned long target_ip_be, unsigned sho
 
     if (remainingLen > 0) {
         char dummy[260];
-        if (!RecvAll(s, dummy, remainingLen)) return FALSE;
+        if (!RecvAllTimed(s, dummy, remainingLen)) return FALSE;
     }
 
     return TRUE;
@@ -259,55 +291,52 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
         proxyAddr.sin_port = htons(g_ProxyPort);
         proxyAddr.sin_addr.s_addr = inet_addr(g_ProxyIp);
 
-        // 获取原 socket 是否配置为非阻塞
-        bool wasNonBlocking = false;
-        SocketContext ctx = { false, NULL, 0, NULL, 0, 0 };
-        {
-            std::lock_guard<std::mutex> lock(g_SocketMutex);
-            auto it = g_SocketMap.find(s);
-            if (it != g_SocketMap.end()) {
-                ctx = it->second;
-                wasNonBlocking = ctx.isNonBlocking || (ctx.hEvent != NULL) || (ctx.hWnd != NULL);
+        // 设置重入保护，连接本地环回代理 (127.0.0.1)
+        g_InHook = TRUE;
+        int connectRes = pOriginalConnect(s, (sockaddr*)&proxyAddr, sizeof(proxyAddr));
+        int lastErr = WSAGetLastError();
+        g_InHook = FALSE;
+
+        // 如果原套接字配置为非阻塞模式，connect 会返回 WSAEWOULDBLOCK，用 select 等待本地环回建立连接 (通常 < 1ms)
+        if (connectRes != 0 && lastErr == WSAEWOULDBLOCK) {
+            fd_set wfds, efds;
+            FD_ZERO(&wfds);
+            FD_ZERO(&efds);
+            FD_SET(s, &wfds);
+            FD_SET(s, &efds);
+            timeval tv = { 1, 500000 };
+            int sel = select(0, NULL, &wfds, &efds, &tv);
+            if (sel > 0 && FD_ISSET(s, &wfds)) {
+                int so_error = 0;
+                int errLen = sizeof(so_error);
+                getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&so_error, &errLen);
+                if (so_error == 0) {
+                    connectRes = 0;
+                }
             }
         }
 
-        // 临时设置发送/接收超时（2.5秒），防止握手死等挂起游戏
-        DWORD timeout = 2500;
-        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
-        setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
-
-        // 临时切换至阻塞模式完成连接与 Socks5 握手
-        u_long blk = 0;
-        pOriginalIoctlsocket(s, FIONBIO, &blk);
-
-        // 设置重入保护
-        g_InHook = TRUE;
-        int connectRes = pOriginalConnect(s, (sockaddr*)&proxyAddr, sizeof(proxyAddr));
-        g_InHook = FALSE;
-
         if (connectRes == 0) {
-            // 连接本地代理成功，立刻执行 Socks5 握手
+            // 启用 TCP_NODELAY，禁用 Nagle 算法，消除世界服心跳包 40~200ms 的积压延迟
+            BOOL bNoDelay = TRUE;
+            setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*)&bNoDelay, sizeof(bNoDelay));
+
+            // 执行 Socks5 握手 (由 select 驱动，完全无损兼容非阻塞套接字，绝不触碰和破坏 WSAEventSelect 内部记录！)
             if (DoSocks5Handshake(s, targetIp, targetPort)) {
-                WriteLog("[TCP 成功] 已打通 Socks5 隧道并连接目标: %s:%d (恢复非阻塞模式: %s)", ipStr, portNum, wasNonBlocking ? "是" : "否");
+                WriteLog("[TCP 成功] 已打通 Socks5 隧道并连接目标: %s:%d", ipStr, portNum);
 
-                // 清理超时设置
-                DWORD noTimeout = 0;
-                setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&noTimeout, sizeof(noTimeout));
-                setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&noTimeout, sizeof(noTimeout));
-
-                // 恢复为游戏期望的非阻塞模式与事件通知
-                if (wasNonBlocking) {
-                    u_long nonBlk = 1;
-                    pOriginalIoctlsocket(s, FIONBIO, &nonBlk);
-
-                    if (ctx.hEvent != NULL) {
-                        pOriginalWSAEventSelect(s, ctx.hEvent, ctx.networkEvents);
-                        // 触发已连接事件通知游戏主循环
-                        SetEvent(ctx.hEvent);
-                    }
-                    if (ctx.hWnd != NULL && ctx.wMsg != 0) {
-                        pOriginalWSAAsyncSelect(s, ctx.hWnd, ctx.wMsg, ctx.asyncEvents);
-                        PostMessageW(ctx.hWnd, ctx.wMsg, (WPARAM)s, WSAMAKESELECTREPLY(FD_CONNECT, 0));
+                // 唤醒游戏可能关联的事件句柄，但绝不调用 WSAEventSelect 清空内部事件！
+                {
+                    std::lock_guard<std::mutex> lock(g_SocketMutex);
+                    auto it = g_SocketMap.find(s);
+                    if (it != g_SocketMap.end()) {
+                        if (it->second.hEvent != NULL) {
+                            SetEvent(it->second.hEvent);
+                        }
+                        if (it->second.hWnd != NULL && it->second.wMsg != 0) {
+                            PostMessageW(it->second.hWnd, it->second.wMsg, (WPARAM)s, WSAMAKESELECTREPLY(FD_CONNECT, 0));
+                            PostMessageW(it->second.hWnd, it->second.wMsg, (WPARAM)s, WSAMAKESELECTREPLY(FD_WRITE, 0));
+                        }
                     }
                 }
 
@@ -315,23 +344,12 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
                 return 0; // 返回成功骗过游戏
             } else {
                 WriteLog("[TCP 错误] Socks5 握手失败: %s:%d，主动重置连接防止脏状态", ipStr, portNum);
-                DWORD noTimeout = 0;
-                setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&noTimeout, sizeof(noTimeout));
-                setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&noTimeout, sizeof(noTimeout));
-                if (wasNonBlocking) {
-                    u_long nonBlk = 1;
-                    pOriginalIoctlsocket(s, FIONBIO, &nonBlk);
-                }
                 closesocket(s);
                 WSASetLastError(WSAECONNREFUSED);
                 return SOCKET_ERROR;
             }
         } else {
-            WriteLog("[自动直连旁路] 连接本地代理 %s:%d 失败 (核心未启动或已停止)，自动平滑直连原始目标: %s:%d", g_ProxyIp, g_ProxyPort, ipStr, portNum);
-            if (wasNonBlocking) {
-                u_long nonBlk = 1;
-                pOriginalIoctlsocket(s, FIONBIO, &nonBlk);
-            }
+            WriteLog("[自动直连旁路] 连接本地代理 %s:%d 失败，自动平滑直连原始目标: %s:%d", g_ProxyIp, g_ProxyPort, ipStr, portNum);
             if (isWSA) return pOriginalWSAConnect(s, name, namelen, lpCallerData, lpCalleeData, lpSQOS, lpGQOS);
             return pOriginalConnect(s, name, namelen);
         }
