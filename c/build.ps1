@@ -19,5 +19,5 @@ Write-Host "============================================" -ForegroundColor Green
 Write-Host "[OK] Build succeeded!" -ForegroundColor Green
 Write-Host "Artifacts located in: $scriptDir" -ForegroundColor Green
 Write-Host "  - c\hook_proxy.dll"
-Write-Host "  - c\launcher_gui.exe"
+Write-Host "  - c\GameTcpSpeed.exe"
 Write-Host "============================================" -ForegroundColor Green

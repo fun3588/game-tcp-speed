@@ -249,7 +249,6 @@ cat << EOF > ${{WORKDIR}}/anytls_hy2.json
   "subToken": "${{SUB_TOKEN}}",
   "clashApiSecret": "${{CLASH_SECRET}}",
   "subUrl": "http://${{PUBLIC_IP}}:{WEB_PORT}/sub?token=${{SUB_TOKEN}}",
-  "clashSubUrl": "http://${{PUBLIC_IP}}:{WEB_PORT}/sub?token=${{SUB_TOKEN}}&format=clash",
   "singboxSubUrl": "http://${{PUBLIC_IP}}:{WEB_PORT}/sub?token=${{SUB_TOKEN}}&format=singbox",
   "createdAt": "$(date -Iseconds)"
 }}
@@ -291,7 +290,6 @@ type ConfigMeta struct {
 	SubToken         string `json:"subToken"`
 	ClashApiSecret   string `json:"clashApiSecret"`
 	SubUrl           string `json:"subUrl"`
-	ClashSubUrl      string `json:"clashSubUrl"`
 	SingboxSubUrl    string `json:"singboxSubUrl"`
 	CreatedAt        string `json:"createdAt"`
 }
@@ -555,37 +553,6 @@ func handleSub(w http.ResponseWriter, r *http.Request) {
 	anytlsLink := fmt.Sprintf("anytls://%s@%s:%d?security=reality&sni=%s&pbk=%s&sid=%s&fp=chrome&type=tcp&insecure=1&allowInsecure=1#AnyTLS-Gaming",
 		meta.AnytlsPassword, meta.PublicIP, meta.AnytlsPort, meta.RealitySni, meta.RealityPublicKey, meta.RealityShortId)
 
-	if format == "clash" {
-		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
-		clashYaml := fmt.Sprintf(`port: 7890
-socks-port: 7891
-allow-lan: false
-mode: rule
-log-level: info
-proxies:
-  - name: "AnyTLS Gaming"
-    type: anytls
-    server: %s
-    port: %d
-    password: "%s"
-    sni: %s
-    public-key: "%s"
-    short-id: "%s"
-    client-fingerprint: chrome
-    udp: true
-    skip-cert-verify: true
-proxy-groups:
-  - name: "PROXIES"
-    type: select
-    proxies:
-      - "AnyTLS Gaming"
-rules:
-  - MATCH,PROXIES
-`, meta.PublicIP, meta.AnytlsPort, meta.AnytlsPassword, meta.RealitySni, meta.RealityPublicKey, meta.RealityShortId)
-		w.Write([]byte(clashYaml))
-		return
-	}
-
 	if format == "singbox" {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		sbConfig := fmt.Sprintf(`{
@@ -777,14 +744,6 @@ const htmlTemplate = `<!DOCTYPE html>
           <button onclick="copyField('subUrlInput', this)">复制通用订阅</button>
         </div>
       </div>
-
-      <div style="margin-top:0.6rem;">
-        <span style="font-size:0.8rem;color:var(--muted);">Clash.Meta (Mihomo) 专属订阅:</span>
-        <div class="input-group">
-          <input type="text" id="clashSubInput" readonly>
-          <button onclick="copyField('clashSubInput', this)">复制 Clash 订阅</button>
-        </div>
-      </div>
     </div>
 
     <div class="card">
@@ -851,7 +810,6 @@ const htmlTemplate = `<!DOCTYPE html>
     window.onload = function() {
       fetch('/anytls_hy2.json').then(r=>r.json()).then(meta=>{
         document.getElementById('subUrlInput').value = meta.subUrl;
-        document.getElementById('clashSubInput').value = meta.clashSubUrl;
         
         const anytlsUrl = "anytls://" + meta.anytlsPassword + "@" + meta.publicIp + ":" + meta.anytlsPort + "?security=reality&sni=" + meta.realitySni + "&pbk=" + meta.realityPublicKey + "&sid=" + meta.realityShortId + "&fp=chrome&type=tcp&insecure=1&allowInsecure=1#AnyTLS-Gaming";
         document.getElementById('anytlsLink').value = anytlsUrl;

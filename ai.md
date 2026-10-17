@@ -1,4 +1,4 @@
-# AI 协作与维护指南 (AI Collaboration & Maintenance Guide)
+# AI 协作与维护指南 v3.0 (AI Collaboration & Maintenance Guide v3.0)
 
 [中文说明](#-中文说明) • [English Documentation](#-english-documentation)
 
@@ -8,38 +8,55 @@
 
 > 本文档是给 AI 助手与开发者的交接规范文档，进行代码维护与二次开发时请严格遵循以下准则。
 
-### 核心约束与注意事项
+### 核心约束与架构规范 (v3.0)
 
-1. **严禁引入 TUN / TAP 虚拟网卡**：
-   - 本项目的核心原则是“纯应用层 Winsock Hook 拦截”，绝不允许创建虚拟网卡或修改系统默认路由网关，确保与开发者机器上的现有网络、VPN 及系统代理共存。
-2. **纯 C++ 原生实现，严禁引入 Python 依赖**：
-   - 客户端已全面完成纯 C++ 原生迁移，内置 Winsock 原生测速与 WinINet 原生订阅下载，不可再回退添加 `.py` 脚本依赖。
-3. **套接字非阻塞保护机制**：
-   - 修改 `hook_proxy.cpp` 时必须维护对 `ioctlsocket`、`WSAEventSelect` 和 `WSAAsyncSelect` 的状态还原机制。在握手完成后必须把 Socket 还原为非阻塞模式，否则会导致魔兽世界主线程卡死无响应。
+1. **纯经典 Win32 API + GDI 架构准则**：
+   - 官方唯一客户端全栈采用纯 C/C++ 编译，前端为 `c/gui/launcher_gui.cpp`（纯原生 Win32 API + GDI），底层为 `c/dll/hook_proxy.cpp`；
+   - **严禁引入 WebView2、Electron、WPF 或重型第三方渲染库**，确保可执行文件单文件体积 ≤ 200 KB，运行时内存常驻在 **3 MB ~ 5 MB**，启动即开；
+   - 原 C# WPF 方案已封存归档于 `c#/GameTcpSpeed.Wpf` 目录作为历史参考，日常构建与发布全部基于 `bin/v3.0` 与 `build_all.ps1`。
+2. **严禁引入 TUN / TAP 虚拟网卡**：
+   - 坚持“用户态 Winsock 行内 Hook 拦截”原则，严禁安装虚拟网卡或改写系统默认路由网关。
+3. **套接字非阻塞保护与 ConnectEx 支持**：
+   - 必须同时拦截标准 `connect`、`WSAConnect` 与异步完成端口 `ConnectEx`（以及 `WSAIoctl` 查询），保障已在运行中的游戏可免重启平滑接管；
+   - 握手完成后必须把 Socket 还原为游戏期望的非阻塞状态，并补发 `FD_CONNECT` / `SetEvent` 信号，避免游戏主线程死锁。
 4. **AnyTLS 协议纯净度保障**：
    - 对外服网游（特别是使用 SRP 认证的魔兽世界私服），严禁在 AnyTLS 配置中开启 `padding_scheme`，否则二进制包长度被篡改将导致客户端在 10ms 内断开连接。
-5. **动态高位随机端口与配置热同步**：
-   - 核心启动时必须动态分配随机高位端口（`50000–65535`），并通过 `proxy_config.ini` 实现毫秒级热更新，杜绝端口冲突（`10061`）。
+5. **中英双语（i18n）维护规范**：
+   - 所有新增 UI 文本、按钮和诊断信息必须通过 `L(L"中文", L"English")` 辅助宏在 `ApplyLanguage()` 中同步维护，支持运行时右上角一键热切换。
 6. **信息安全与去敏感化**：
-   - 严禁将真实 VPS IP、WebUI 密码、订阅 Token 及真实公钥提交至公开仓库，所有示例统一使用占位符（如 `<SERVER_IP>`、`<YOUR_TOKEN>`）。
+   - 严禁将真实 VPS IP、WebUI 密码、订阅 Token 及真实私钥提交至公开仓库，所有示例统一使用占位符。
+7. **平滑旁路降级与远程卸载保障**：
+   - 底层拦截模块在本地代理未运行或 `Proxy.Enabled=0` 时必须自动平滑直连原始目标地址，杜绝因核心停止造成游戏断网；
+   - 必须提供远程 `FreeLibrary` 卸载与界面一键卸载功能，确保加速器关闭或卸载后游戏 100% 恢复原生网络。
+8. **游戏目录探测与真实直连测试原则**：
+   - 优先扫描 `E:\gamel\The War Within` 等实机安装路径，解析 `WTF\Config.wtf` 提取真实服务器 IP；
+   - 探针测试必须基于本机直连执行原始 Socket 测量，反映真实物理 RTT，严禁伪造测试结果。
 
 ---
 
 ## 🇺🇸 English Documentation
 
-> This document serves as the maintenance handover guide for AI assistants and contributors.
+> This document serves as the maintenance handover guide for AI assistants and contributors for v3.0.
 
-### Core Guidelines & Architectural Invariants
+### Core Guidelines & Architectural Invariants (v3.0)
 
-1. **Strictly No TUN/TAP Virtual Adapters**:
-   - The fundamental architecture is user-mode Winsock API hooking. Do not introduce virtual network adapters or modify system routing tables, preventing conflicts with existing VPNs or developer network interfaces.
-2. **Pure Native C++ Without Python Dependencies**:
-   - The client is fully compiled in pure C++ Win32 with native Winsock RTT testing and WinINet subscription management. Do not reintroduce Python runtime scripts.
-3. **Non-Blocking Socket Mode Preservation**:
-   - When modifying `hook_proxy.cpp`, preserve the state tracking for `ioctlsocket`, `WSAEventSelect`, and `WSAAsyncSelect`. The socket must be restored to non-blocking mode after Socks5 handshakes to prevent main-thread game lockups.
+1. **Pure Win32 API + GDI Ultra-Lightweight Standard**:
+   - The primary client is built purely with native Win32 API + GDI (`c/gui/launcher_gui.cpp`) and MinHook (`c/dll/hook_proxy.cpp`).
+   - **Strictly No WebView2, Electron, or Heavy CLR Runtimes**. Memory footprint must remain within **3 ~ 5 MB RAM**, single executable ≤ 200 KB, instant launch.
+   - Legacy C# WPF project is archived under `c#/GameTcpSpeed.Wpf`.
+2. **Strictly No TUN/TAP Virtual Adapters**:
+   - Operates purely through user-space Winsock API hooking. Never introduce virtual NICs or modify routing tables.
+3. **Non-Blocking Preservation & Asynchronous ConnectEx**:
+   - Intercept both standard `connect` / `WSAConnect` and asynchronous IOCP `ConnectEx` (plus `WSAIoctl`).
+   - Sockets must be restored to non-blocking mode with `FD_CONNECT` / `SetEvent` signals to prevent game lockups.
 4. **Strict Transparency in AnyTLS Configuration**:
-   - Never enable `padding_scheme` for games using binary SRP handshakes (like World of Warcraft). Packet length tampering causes immediate client disconnects.
-5. **Dynamic High-Port Negotiation**:
-   - Always allocate unreserved random high ports (`50000–65535`) on launch and synchronize via `proxy_config.ini` to avoid `10061` connection refused errors.
+   - Never enable `padding_scheme` for games using binary SRP handshakes.
+5. **Bilingual Localization Standards**:
+   - All user-facing strings must support instant dynamic switching via `L(L"Chinese", L"English")` in `ApplyLanguage()`.
 6. **Security & Redaction**:
-   - Never commit sensitive VPS credentials, IP addresses, or tokens. Always use standardized placeholders (`<SERVER_IP>`, `<YOUR_TOKEN>`).
+   - Never commit private VPS IP addresses, passwords, or secret tokens.
+7. **Clean Ejection & Auto-Bypass**:
+   - The hook layer must degrade gracefully to direct connections if Sing-box is offline.
+   - Remote `FreeLibrary` unhooking must safely restore unmodified Winsock states.
+8. **Game Directory Endpoint Inspection**:
+   - Endpoints should be derived from local game directories (`WTF\Config.wtf`) with direct physical RTT benchmarks.

@@ -1,24 +1,30 @@
-# Game-TCP-Speed
+# Game-TCP-Speed v3.0
 
-> Game-TCP-Speed is an open-source, process-level TCP network game accelerator for Windows that eliminates the need for TUN/TAP virtual network adapters and avoids system gateway routing conflicts.
+> Game-TCP-Speed is an open-source, ultra-lightweight pure Win32 process-level TCP network game accelerator for Windows. It provides millisecond-level traffic tunneling without TUN/TAP virtual network adapters, WebView bloat, or system gateway routing conflicts.
 
 ## Project Overview
 
 - Repository: https://github.com/fun3588/game-tcp-speed
-- Primary Language: C++11 / Win32 API
-- Core Architecture: Winsock API Hooking (MinHook) + Sing-box TCP proxy (AnyTLS + Reality)
-- Target Use Case: Low-latency, jitter-free cross-border game acceleration (e.g., World of Warcraft, Diablo, FFXIV) without interfering with local developer tools (Docker, WSL2, corporate VPNs).
+- Primary Architecture: Pure Win32 API + GDI (Native Hook DLL + Native Windows Common Controls)
+- Core Hook Engine: Winsock Inline Hooking (`connect`, `WSAConnect`, `ConnectEx`, `WSAIoctl`) via MinHook x64
+- Dedicated Tunnel: Sing-box TCP stream proxy (AnyTLS + Reality)
+- Target Use Case: Low-latency, jitter-free cross-border game acceleration (e.g., World of Warcraft, Diablo, FFXIV) without interfering with local developer environments (Docker, WSL2, corporate VPNs).
+- Legacy Archived: Previous C# WPF GUI archived under `c#/GameTcpSpeed.Wpf`.
 
-## Key Technical Details
+## Key Technical Details in v3.0
 
-- Zero TUN Adapter: Operates purely in user space by hooking `connect` and `WSAConnect` in the target process. No network driver or virtual NIC is installed.
-- Non-Blocking Socket Preservation: Automatically tracks and restores non-blocking socket modes (`ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`) and emits `FD_CONNECT` / `SetEvent` signals after completing Socks5 handshakes, preventing game main-thread freezes.
-- Clean Packet Forwarding: Strips `padding_scheme` from AnyTLS to avoid altering SRP authentication binary packet lengths.
-- Kernel Tuning for Gaming: Server-side Linux sysctl disables TCP FastOpen and `tcp_tw_reuse` to prevent packet drops and resets behind residential NATs.
-- Dynamic Port Isolation: Allocates unreserved high ports (`50000–65535`) at runtime, preventing `10061` port collisions.
+- Ultra-Low Footprint: Only 3 ~ 5 MB RAM, single binary 174 KB, starts in < 0.01s. Zero WebView2 or .NET CLR runtime dependencies.
+- Zero TUN Adapter: Operates purely in user space. No virtual NIC or system routing table modifications.
+- Live Process Takeover: Hooks asynchronous IOCP `ConnectEx` to accelerate already-running games without requiring a restart.
+- Clean Remote Ejection: Supports on-the-fly `FreeLibrary` unhooking to immediately restore direct connectivity without exiting the game.
+- Non-Blocking Socket Preservation: Automatically restores non-blocking socket modes (`ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`) and emits `FD_CONNECT` / `SetEvent` signals to prevent game main-thread freezes.
+- Bilingual Support: Instant runtime dynamic switching between Simplified Chinese and English (<1ms).
+- Real-Time Network Probe: Host-to-game physical RTT measurements.
+- Game Directory Auto-Detection: Automatically discovers local game config (`WTF\Config.wtf`) and loads target realm endpoints.
+- Subscription Persistence: Automatically saves custom subscriptions to `subscription.ini`.
 
 ## Key Files & Documentation
 
 - [README.md](https://github.com/fun3588/game-tcp-speed/blob/main/README.md): Comprehensive project architecture and usage guide (Chinese & English).
 - [setupAnytls.md](https://github.com/fun3588/game-tcp-speed/blob/main/setupAnytls.md): Automated server deployment script and low-latency network tuning guidelines.
-- [docs/加速器效果验证.md](https://github.com/fun3588/game-tcp-speed/blob/main/docs/%E5%8A%A0%E9%80%9F%E5%99%A8%E6%95%88%E6%9E%9C%E9%AA%8C%E8%AF%81.md): Real-world benchmark report showing RTT and jitter reduction.
+- [ai.md](https://github.com/fun3588/game-tcp-speed/blob/main/ai.md): Maintenance guidelines and architectural invariants for AI assistants.

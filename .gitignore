@@ -8,7 +8,9 @@
 *.pdb
 *.ilk
 build/
+c/build/
 bin/
+archive/
 out/
 .vs/
 .vscode/
