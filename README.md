@@ -118,13 +118,32 @@ bin\v3.0\GameTcpSpeed.exe
 
 ---
 
+### 🔬 核心技术攻坚与深坑排查记录 (Troubleshooting & Engineering Post-Mortem)
+
+在魔兽世界 11.2.5 进程级加速与多开实战中，我们攻克了多个传统代理工具极易触发的底层死穴（详细技术复盘详见 [魔兽世界11.2.5与多开底层网络排查复盘.md](docs/魔兽世界11.2.5与多开底层网络排查复盘.md)）：
+
+1. **彻底根除 CDN 贴图导致伪装内存溢出崩溃（`funcs.cpp Out of Memory`）**：
+   - **痛点**：魔兽 11.2.5 集成 libcurl 并发向 CDN（`146.59.238.42:80`）流式拉取贴图与密钥，旧版无差别代理 80 端口导致 libcurl 非阻塞时序紊乱报错 `cdn hosts exhausted`，BLP 贴图解码器读取空数据直接引发 `ERROR #8: Out of Memory` 闪退；
+   - **方案**：引入 `ShouldAccelerate` 智能白名单，**绝对放行 HTTP 80 与 HTTPS 443**，CDN 贴图走原生公网直连满速加载，精准加速 `1119`、`3724` 与世界服 `8285/8286` 核心端口。
+2. **彻底解决多开在选人界面卡顿断开（`WOW51900319`）**：
+   - **痛点**：MSDN 明确规定二次调用 `WSAEventSelect` 会彻底清空套接字内部网络事件记录。旧版 Hook 在握手后二次调用该函数，**抹除了内核的 `FD_WRITE` 可写事件**，导致客户端在选人界面误判不可写而迟迟不发角色登录包，30 秒后世界服超时强制切断（报 `WOW51900319`）；
+   - **方案**：重构为**基于超时 `select` 驱动的无损握手模式**，完全不改变套接字模式，绝对不二次触碰 `WSAEventSelect`，100% 保留内核事件记录，并开启 `TCP_NODELAY = 1` 消除心跳积压，实现任意多开秒进世界。
+3. **修复 ConnectEx 异步 IOCP 黑洞与 WSAEISCONN 脏套接字**：
+   - 对异步 IOCP `ConnectEx` 放行原生直连，防止异步完成端口因未完成 Socks5 握手而进入协议黑洞；
+   - 握手失败分支主动关闭套接字并置位 `WSAECONNREFUSED`，严禁产生脏套接字二次连接。
+4. **长生命周期内存治理与 PID 复用防漏注入**：
+   - 挂钩 `closesocket`，在套接字释放时立即清理 `SocketContext`，杜绝长效多开挂机内存泄露；
+   - 自动监控轮询中增加已退出进程死 PID 自动清除，完美应对游戏重启与 PID 复用。
+
+---
+
 ### 目录结构
 
 ```text
 game-tcp-speed/
 ├── bin/v3.0/                         # v3.0 完整自闭环打包发布目录
 │   ├── GameTcpSpeed.exe              # 纯经典 Win32 API + GDI 主程序 (174 KB, 内存 3~5MB)
-│   ├── hook_proxy.dll                # 底层 Winsock 拦截模块 (支持 ConnectEx 与热卸载)
+│   ├── hook_proxy.dll                # 底层 Winsock 拦截模块 (支持 ConnectEx、closesocket 与热卸载)
 │   └── Sing-box/                     # 专线代理核心及配置
 │
 ├── c/                                # 纯 C/C++ 底层模块与 Win32 源码
@@ -139,6 +158,9 @@ game-tcp-speed/
 │
 ├── Sing-box/                         # 独立 Sing-box 核心环境与节点配置
 ├── docs/                             # 测评与使用说明文档
+│   ├── 魔兽世界11.2.5与多开底层网络排查复盘.md # 底层网络死穴与多开排查技术复盘
+│   ├── 加速器效果验证.md             # 专线加速效果实测记录
+│   └── 独立sing-box使用说明.md        # 独立内核运行指导
 ├── build_all.ps1                     # 一键全栈构建打包脚本 (编译并输出至 bin/v3.0)
 ├── README.md                         # 本文档
 └── setupAnytls.md                    # AnyTLS 服务端部署参考

@@ -13,7 +13,7 @@
 
 // 全局配置
 static char g_ProxyIp[64] = "127.0.0.1";
-static unsigned short g_ProxyPort = 10808;
+static unsigned short g_ProxyPort = 58588;
 static BOOL g_ProxyEnabled = TRUE;
 static char g_LogPath[MAX_PATH] = "proxy_hook.log";
 static HMODULE g_hModule = NULL;
@@ -23,6 +23,7 @@ static DWORD g_lastConfigCheck = 0;
 typedef int (WSAAPI* PFN_CONNECT)(SOCKET s, const sockaddr* name, int namelen);
 typedef int (WSAAPI* PFN_WSACONNECT)(SOCKET s, const sockaddr* name, int namelen, LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS);
 typedef int (WSAAPI* PFN_IOCTLSOCKET)(SOCKET s, long cmd, u_long* argp);
+typedef int (WSAAPI* PFN_CLOSESOCKET)(SOCKET s);
 typedef int (WSAAPI* PFN_WSAEVENTSELECT)(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents);
 typedef int (WSAAPI* PFN_WSAASYNCSELECT)(SOCKET s, HWND hWnd, u_int wMsg, long lEvent);
 typedef BOOL (PASCAL FAR * LPFN_CONNECTEX)(SOCKET s, const struct sockaddr FAR *name, int namelen, PVOID lpSendBuffer, DWORD dwSendDataLength, LPDWORD lpdwBytesSent, LPOVERLAPPED lpOverlapped);
@@ -31,6 +32,7 @@ typedef int (WSAAPI* PFN_WSAIOCTL)(SOCKET s, DWORD dwIoControlCode, LPVOID lpvIn
 static PFN_CONNECT pOriginalConnect = NULL;
 static PFN_WSACONNECT pOriginalWSAConnect = NULL;
 static PFN_IOCTLSOCKET pOriginalIoctlsocket = NULL;
+static PFN_CLOSESOCKET pOriginalClosesocket = NULL;
 static PFN_WSAEVENTSELECT pOriginalWSAEventSelect = NULL;
 static PFN_WSAASYNCSELECT pOriginalWSAAsyncSelect = NULL;
 static LPFN_CONNECTEX pOriginalConnectEx = NULL;
@@ -53,6 +55,21 @@ static std::unordered_map<SOCKET, SocketContext> g_SocketMap;
 static thread_local BOOL g_InHook = FALSE;
 
 static void WriteLog(const char* format, ...) {
+    // 超过 5MB 自动截断清理，防止多开长时间运行导致磁盘膨胀
+    static int s_logCount = 0;
+    if (++s_logCount % 100 == 0) {
+        WIN32_FILE_ATTRIBUTE_DATA fad;
+        if (GetFileAttributesExA(g_LogPath, GetFileExInfoStandard, &fad)) {
+            if (fad.nFileSizeLow > 5 * 1024 * 1024) {
+                FILE* fpTrunc = fopen(g_LogPath, "w");
+                if (fpTrunc) {
+                    fprintf(fpTrunc, "=== 日志达到 5MB 上限，已自动滚动清空重置 ===\n");
+                    fclose(fpTrunc);
+                }
+            }
+        }
+    }
+
     FILE* fp = fopen(g_LogPath, "a");
     if (!fp) return;
 
@@ -377,6 +394,15 @@ int WSAAPI HookedIoctlsocket(SOCKET s, long cmd, u_long* argp) {
     return pOriginalIoctlsocket(s, cmd, argp);
 }
 
+// Hook closesocket 及时释放 SocketContext，杜绝长生命周期多开内存泄漏
+int WSAAPI HookedClosesocket(SOCKET s) {
+    {
+        std::lock_guard<std::mutex> lock(g_SocketMutex);
+        g_SocketMap.erase(s);
+    }
+    return pOriginalClosesocket(s);
+}
+
 // Hook WSAEventSelect 捕获游戏事件通知绑定
 int WSAAPI HookedWSAEventSelect(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents) {
     if (hEventObject != NULL) {
@@ -497,6 +523,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             MH_CreateHookApi(L"ws2_32.dll", "connect", (LPVOID)&HookedConnect, (LPVOID*)&pOriginalConnect);
             MH_CreateHookApi(L"ws2_32.dll", "WSAConnect", (LPVOID)&HookedWSAConnect, (LPVOID*)&pOriginalWSAConnect);
             MH_CreateHookApi(L"ws2_32.dll", "ioctlsocket", (LPVOID)&HookedIoctlsocket, (LPVOID*)&pOriginalIoctlsocket);
+            MH_CreateHookApi(L"ws2_32.dll", "closesocket", (LPVOID)&HookedClosesocket, (LPVOID*)&pOriginalClosesocket);
             MH_CreateHookApi(L"ws2_32.dll", "WSAEventSelect", (LPVOID)&HookedWSAEventSelect, (LPVOID*)&pOriginalWSAEventSelect);
             MH_CreateHookApi(L"ws2_32.dll", "WSAAsyncSelect", (LPVOID)&HookedWSAAsyncSelect, (LPVOID*)&pOriginalWSAAsyncSelect);
             MH_CreateHookApi(L"ws2_32.dll", "WSAIoctl", (LPVOID)&HookedWSAIoctl, (LPVOID*)&pOriginalWSAIoctl);

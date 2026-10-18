@@ -566,6 +566,27 @@ static DWORD WINAPI AutoInjectWorker(LPVOID lpParam) {
         wchar_t targetName[128] = { 0 };
         GetWindowTextW(g_hEditTargetName, targetName, 128);
         if (wcslen(targetName) > 0) {
+            // 扫描存活进程，自动清理已退出的 PID，防止 PID 复用导致新进程漏注入
+            HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (hSnap != INVALID_HANDLE_VALUE) {
+                PROCESSENTRY32W pe = { sizeof(pe) };
+                std::set<DWORD> livePids;
+                if (Process32FirstW(hSnap, &pe)) {
+                    do {
+                        livePids.insert(pe.th32ProcessID);
+                    } while (Process32NextW(hSnap, &pe));
+                }
+                CloseHandle(hSnap);
+
+                for (auto it = g_InjectedPids.begin(); it != g_InjectedPids.end(); ) {
+                    if (livePids.find(*it) == livePids.end()) {
+                        it = g_InjectedPids.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+
             InjectMatchingProcesses(targetName);
         }
         Sleep(400);
