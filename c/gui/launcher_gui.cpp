@@ -361,12 +361,55 @@ static void StartSingBox() {
     if (CreateProcessW(NULL, cmdLine, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, singboxDir, &si, &g_SbProcInfo)) {
         wchar_t msg[256];
         _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), 
-                   L(L"√ Sing-box 核心已启动 (PID: %lu, 监听端口: %u)", 
-                     L"√ Sing-box core started (PID: %lu, Port: %u)"), g_SbProcInfo.dwProcessId, randPort);
+                   L(L"√ Sing-box 核心进程已创建 (PID: %lu)，正在验证端口 %u 监听就绪...", 
+                     L"√ Sing-box process started (PID: %lu), verifying port %u readiness..."), g_SbProcInfo.dwProcessId, randPort);
         AppendLog(msg);
-        wchar_t statusBuf[128];
-        _snwprintf(statusBuf, sizeof(statusBuf)/sizeof(wchar_t), L(L"● 运行中 [端口: %u]", L"● Running [Port: %u]"), randPort);
-        if (g_hLabelSbStatus) SetWindowTextW(g_hLabelSbStatus, statusBuf);
+
+        // 前置就绪锁：轮询等待本地代理端口真正开始监听 (最多等待 2.5 秒)
+        bool ready = false;
+        for (int i = 0; i < 25; i++) {
+            Sleep(100);
+            SOCKET testSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            if (testSock != INVALID_SOCKET) {
+                u_long nonblock = 1;
+                ioctlsocket(testSock, FIONBIO, &nonblock);
+                sockaddr_in a;
+                memset(&a, 0, sizeof(a));
+                a.sin_family = AF_INET;
+                a.sin_port = htons(randPort);
+                a.sin_addr.s_addr = inet_addr("127.0.0.1");
+                connect(testSock, (sockaddr*)&a, sizeof(a));
+                fd_set wfds;
+                FD_ZERO(&wfds);
+                FD_SET(testSock, &wfds);
+                timeval tv = { 0, 50000 };
+                if (select(0, NULL, &wfds, NULL, &tv) > 0) {
+                    int so_error = 0;
+                    int len = sizeof(so_error);
+                    getsockopt(testSock, SOL_SOCKET, SO_ERROR, (char*)&so_error, &len);
+                    if (so_error == 0) {
+                        ready = true;
+                        closesocket(testSock);
+                        break;
+                    }
+                }
+                closesocket(testSock);
+            }
+        }
+
+        if (ready) {
+            AppendLog(L(L"★ [前置就绪锁解除] Sing-box 专线核心已完全就绪，端口开放监听！",
+                        L"★ [Ready Lock Released] Sing-box core is ready and listening!"));
+            wchar_t statusBuf[128];
+            _snwprintf(statusBuf, sizeof(statusBuf)/sizeof(wchar_t), L(L"● 运行中 [端口: %u]", L"● Running [Port: %u]"), randPort);
+            if (g_hLabelSbStatus) SetWindowTextW(g_hLabelSbStatus, statusBuf);
+        } else {
+            AppendLog(L(L"⚠ 警告: Sing-box 进程已启动但端口监听超时，请检查配置或防火墙。",
+                        L"⚠ Warning: Sing-box started but port listening timed out."));
+            wchar_t statusBuf[128];
+            _snwprintf(statusBuf, sizeof(statusBuf)/sizeof(wchar_t), L(L"● 监听超时 [端口: %u]", L"● Timeout [Port: %u]"), randPort);
+            if (g_hLabelSbStatus) SetWindowTextW(g_hLabelSbStatus, statusBuf);
+        }
     } else {
         AppendLog(L(L"错误: 无法启动 Sing-box 进程！", L"Error: Failed to start Sing-box!"));
         if (g_hLabelSbStatus) SetWindowTextW(g_hLabelSbStatus, L(L"● 启动失败", L"● Failed"));
@@ -589,7 +632,7 @@ static DWORD WINAPI AutoInjectWorker(LPVOID lpParam) {
 
             InjectMatchingProcesses(targetName);
         }
-        Sleep(400);
+        Sleep(200); // 毫秒级轮询，确保多开瞬间新进程刚启动时立刻完成注入，杜绝漏包
     }
     return 0;
 }
@@ -759,8 +802,8 @@ static void PopulateProbeListView() {
 
 static void ApplyLanguage() {
     // 1. 窗口标题
-    SetWindowTextW(g_hMainWnd, L(L"GameTcpSpeed v3.0 | TCP 游戏加速器", 
-                                 L"GameTcpSpeed v3.0 | TCP Game Accelerator"));
+    SetWindowTextW(g_hMainWnd, L(L"GameTcpSpeed v3.1 | TCP 游戏加速器", 
+                                 L"GameTcpSpeed v3.1 | TCP Game Accelerator"));
 
     // 2. 语言切换按钮
     SetWindowTextW(g_hBtnLang, L(L"🇺🇸 English", L"🇨🇳 简体中文"));
@@ -1110,7 +1153,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         LoadSavedSubscriptions();
         ApplyLanguage();
 
-        AppendLog(L"GameTcpSpeed v3.0 (纯经典 Win32 双语版) 初始化就绪。");
+        AppendLog(L"GameTcpSpeed v3.1 (IPv6防护 / 前置就绪锁 / 私服网络优化版) 初始化就绪。");
         return 0;
     }
 
@@ -1275,7 +1318,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     g_hMainWnd = CreateWindowExW(
         0, L"GameTcpSpeed_Win32_Class",
-        L"GameTcpSpeed v3.0",
+        L"GameTcpSpeed v3.1",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         posX, posY, winWidth, winHeight,
         NULL, NULL, hInstance, NULL);

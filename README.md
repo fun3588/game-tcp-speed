@@ -1,14 +1,14 @@
 <div align="center">
 
-# Game-TCP-Speed v3.0
+# Game-TCP-Speed v3.1
 
 ### Windows 进程级 TCP 游戏加速工具（无需 TUN 虚拟网卡 / 不改写系统网关）
 *(纯经典 Win32 API + GDI 双语版，单文件仅 174 KB，内存仅 3~5 MB，极速零依赖)*
 
-[![Release](https://img.shields.io/badge/Release-v3.0-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
+[![Release](https://img.shields.io/badge/Release-v3.1-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
 [![Language](https://img.shields.io/badge/Language-Pure%20C%2B%2B%20%7C%20Win32%20API-00599C?style=flat-square)](c/)
 [![UI](https://img.shields.io/badge/UI-Pure%20Win32%20%7C%20GDI%20(Bilingual)-brightgreen?style=flat-square)](c/gui/)
-[![Size](https://img.shields.io/badge/Size-174%20KB-success?style=flat-square)](bin/v3.0/)
+[![Size](https://img.shields.io/badge/Size-174%20KB-success?style=flat-square)](bin/v3.1/)
 [![RAM](https://img.shields.io/badge/RAM-3--5%20MB-success?style=flat-square)](README.md)
 [![Hook](https://img.shields.io/badge/Hook-MinHook%20x64%20(ConnectEx)-orange?style=flat-square)](c/)
 [![Core](https://img.shields.io/badge/Core-Sing--box%20v1.14.2-E65C00?style=flat-square&logo=box)](Sing-box/)
@@ -16,7 +16,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 [工作原理](#-工作原理与架构) •
-[v3.0 新特性](#-v30-重大升级) •
+[v3.1 新特性](#-v31-重大升级) •
 [快速开始](#-快速开始) •
 [技术要点](#-技术要点与排查记录) •
 [目录结构](#-项目目录结构) •
@@ -42,27 +42,27 @@
 
 ---
 
-### 🌟 v3.0 重大升级 (纯经典 Win32 API + GDI 双语版)
+### 🌟 v3.1 重大升级 (IPv6 强制回退防封 / 前置就绪锁 / 私服网络加固)
 
-**v3.0 全面确立纯经典 Win32 API + GDI 架构为唯一官方版本**，追求极致微型与极致响应速度：
+在 v3.0 纯经典 Win32 架构的基础上，**v3.1 专门针对魔兽世界私服 TCP 连接机制与多开底层网络进行了深度防线加固**：
 
-1. **极致轻量、零运行时依赖**：
-   - 彻底摒弃一切重型 Web 框架与托管运行时，客户端采用**纯原生 Win32 API + GDI**；
-   - 程序单文件仅 **174 KB**，运行时内存仅 **3 MB ~ 5 MB**，启动耗时 `< 0.01 秒`（瞬间打开）；
-   - 零依赖：任意 Windows 10/11 纯净系统双击即开，不需要显卡高级 3D 渲染支持，不需要安装任何外部运行库；
-   - 原 C# WPF 版本已完整封存归档于 [`c#/GameTcpSpeed.Wpf/`](c#/GameTcpSpeed.Wpf/) 目录下。
-2. **原生中英双语即时一键热切换**：
-   - 窗口右上角提供原生 `[ 🇨🇳 简体中文 / 🇺🇸 English ]` 切换按钮；
-   - 点击瞬间刷新所有选项卡标签、分组框、按钮、输入框、数据表头与状态诊断，**耗时 < 1 毫秒**。
-3. **免重启平滑接管与一键干净热卸载**：
-   - 深度拦截标准 `connect`、`WSAConnect` 以及异步完成端口 `ConnectEx`（微软扩展函数）；
-   - 游戏已在运行中（选人界面或世界服中）亦可直接点击【⚡ 立即接管已运行游戏】，平滑切入专线，**无需退出游戏**；
-   - 新增【🛑 一键卸载 / 恢复直连】，远程线程调用 `FreeLibrary` 干净弹出 Hook 模块并解除拦截，游戏 100% 即刻恢复原本物理直连。
-4. **游戏配置探测与真实物理直连测速**：
-   - 自动探测本地游戏安装目录（如 `The War Within\WTF\Config.wtf`），解析出 `portal`（EU）并提取端点；
-   - 全面测试看板直观展示主机到海外各服务器的**真实物理连通性与 RTT**，杜绝虚假代答。
-5. **订阅持久化与自定义端口调度**：
-   - 支持自研 JSON 订阅与通用 Base64 订阅；
+1. **🛡️ IPv6 强制回退防封保护**：
+   - 国内宽带已普及原生 IPv6，魔兽世界客户端若解析到 AAAA 记录会默认发起 IPv6 连接并绕过代理走原生直连；
+   - 导致严重后果：“登录认证走 IPv4 专线，世界服走国内原生 IPv6 直连”，私服检测到 IP 不一致判定多 IP 异常并强制断开（`WOW51900319`）；
+   - **v3.1 引入内核级 `AF_INET6` 拒绝**，主动返回 `WSAEAFNOSUPPORT`，迫使魔兽世界客户端网络库遵循标准平滑回退到 IPv4 专线，彻底消除漏包与双栈 IP 漂移。
+2. **🔒 前置就绪锁 (Pre-flight Readiness Lock)**：
+   - 彻底解决多开瞬间游戏进程发包抢跑问题；
+   - 启动器在 Sing-box 核心启动后，通过高频 TCP 探针握手验证，**确认本地端口处于真实监听状态后才开放注入**；
+   - 将多开自动监控轮询从 400ms 压至 200ms，确保多开登录器瞬间拉起多个账号时，所有进程在发出首个网络包前均已被完整注入接管。
+3. **🎮 私服端口全兼容与精准 CDN 放行**：
+   - 解除原先一刀切屏蔽 `8080` 的限制，全面支持采用 8080 作为世界服/认证网关的各版本魔兽私服；
+   - 仅针对真正导致贴图解码崩溃的 CDN 资源（`146.59.238.42:80` 及 HTTP 80）实施精准直连放行，兼顾防 `funcs.cpp Out of Memory` 崩溃与私服各端口全面加速。
+4. **🔄 真正的无损平滑降级直连**：
+   - 消除连接本地代理失败后对同一 socket 二次 connect 引发的 Winsock `WSAEINVAL (10022)` 规范崩溃；
+   - 在发起连接前对本地代理核心执行存活探针，若核心未运行，套接字在首次尝试即直接走原生直连，符合 Winsock 状态机标准。
+5. **纯经典 Win32 API + GDI 双语客户端**：
+   - 客户端体积仅 **174 KB**，运行时内存仅 **3 MB ~ 5 MB**，启动耗时 `< 0.01 秒`，零依赖、支持中英双语瞬间热切换；
+   - 支持已运行游戏免重启接管与一键卸载恢复直连。
    - 新增【💾 保存订阅配置】按钮，自动将订阅及端口配置持久化保存至 `subscription.ini`，下次启动自动恢复；
    - 运行时自动检测端口冲突并智能分配高位可用端口。
 
@@ -104,10 +104,10 @@ flowchart TD
 
 ### 快速开始
 
-#### 运行 v3.0 客户端
+#### 运行 v3.1 客户端
 双击运行：
 ```text
-bin\v3.0\GameTcpSpeed.exe
+bin\v3.1\GameTcpSpeed.exe
 ```
 * **特点**：体积仅 174 KB，内存仅 3~5 MB，秒开，原生中英文一键切换，支持游戏免重启接管与一键卸载恢复直连。
 
@@ -141,9 +141,9 @@ bin\v3.0\GameTcpSpeed.exe
 
 ```text
 game-tcp-speed/
-├── bin/v3.0/                         # v3.0 完整自闭环打包发布目录
+├── bin/v3.1/                         # v3.1 完整自闭环打包发布目录
 │   ├── GameTcpSpeed.exe              # 纯经典 Win32 API + GDI 主程序 (174 KB, 内存 3~5MB)
-│   ├── hook_proxy.dll                # 底层 Winsock 拦截模块 (支持 ConnectEx、closesocket 与热卸载)
+│   ├── hook_proxy.dll                # 底层 Winsock 拦截模块 (支持 IPv6回退、就绪锁与热卸载)
 │   └── Sing-box/                     # 专线代理核心及配置
 │
 ├── c/                                # 纯 C/C++ 底层模块与 Win32 源码
@@ -161,7 +161,7 @@ game-tcp-speed/
 │   ├── 魔兽世界11.2.5与多开底层网络排查复盘.md # 底层网络死穴与多开排查技术复盘
 │   ├── 加速器效果验证.md             # 专线加速效果实测记录
 │   └── 独立sing-box使用说明.md        # 独立内核运行指导
-├── build_all.ps1                     # 一键全栈构建打包脚本 (编译并输出至 bin/v3.0)
+├── build_all.ps1                     # 一键全栈构建打包脚本 (编译并输出至 bin/v3.1)
 ├── README.md                         # 本文档
 └── setupAnytls.md                    # AnyTLS 服务端部署参考
 ```
@@ -178,16 +178,18 @@ Conventional accelerators rely on TUN/TAP virtual network adapters to hijack def
 
 **Game-TCP-Speed** uses **user-mode Winsock Inline Hooking** to intercept and accelerate only designated game executables (such as `WoW 11.2.5 - Firestorm.exe`) without creating virtual network adapters or altering system routing tables. Combined with AnyTLS + Reality streaming, it provides seamless latency optimization.
 
-### Key Features in v3.0 (Pure Win32 API + GDI Bilingual Edition)
+### Key Features in v3.1 (Pure Win32 API + GDI Bilingual Edition)
 
 - **Pure Win32 Zero-Overhead Architecture**: Strictly no WebView2, Electron, or heavy .NET CLR dependencies. Built purely with native **Win32 API + GDI**. Executable size is only **174 KB**, consumes merely **3 ~ 5 MB RAM**, and starts instantly in `< 0.01s`.
-- **Archived C# Implementation**: Legacy WPF client is cleanly archived under [`c#/GameTcpSpeed.Wpf/`](c#/GameTcpSpeed.Wpf/).
+- **IPv6 Fallback Defense**: Rejects `AF_INET6` connections to force client fallbacks to IPv4 proxy tunnel, eliminating dual-stack packet leakage and multi-IP disconnects (`WOW51900319`).
+- **Pre-flight Readiness Lock**: Launcher verifies proxy port listening state before triggering injection, preventing race-condition direct leaks during multi-boxing.
+- **Private Server Full Compatibility**: Unblocks port 8080 and other private server custom world ports while keeping CDN texture assets (port 80) direct to avoid `funcs.cpp Out of Memory` crashes.
+- **Graceful Zero-Crash Fallback**: Conforms strictly to Winsock state standards, directly routing to host if the proxy core is offline without corrupted socket reuse (`WSAEINVAL 10022`).
 - **Instant Bilingual Toggle**: Switch between Simplified Chinese and English via the top-right button in less than 1 millisecond.
 - **Live Takeover & Clean Hot Unload**: Hooks standard `connect`, `WSAConnect`, and asynchronous IOCP `ConnectEx` APIs. Accelerate live running games without restarts; clean `FreeLibrary` hot-eject restores direct connection instantly.
 - **Game Directory Auto-Detection & Physical RTT**: Automatically detects local game installs (`WTF\Config.wtf`), extracting endpoints and performing genuine host-to-server physical RTT benchmarks.
 - **Subscription Persistence & Port Isolation**: Save and restore subscription configs (`subscription.ini`) with custom high-port mapping.
-- **Graceful Auto-Bypass**: Automatically degrades to direct connection when the proxy core is offline.
 
 ### Build & Run
 
-- Launch: `bin\v3.0\GameTcpSpeed.exe`
+- Launch: `bin\v3.1\GameTcpSpeed.exe`

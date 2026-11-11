@@ -37,6 +37,9 @@ add_library(hook_proxy SHARED
 )
 set_target_properties(hook_proxy PROPERTIES PREFIX "")
 target_link_libraries(hook_proxy PRIVATE ws2_32)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_link_options(hook_proxy PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
 
 # 3. 编译 v3.0 纯经典 Win32 API + GDI 旗舰图形客户端 (GameTcpSpeed.exe, 带应用图标)
 add_executable(GameTcpSpeed WIN32
@@ -54,3 +57,6 @@ target_link_libraries(GameTcpSpeed PRIVATE
     wininet 
     psapi
 )
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_link_options(GameTcpSpeed PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
