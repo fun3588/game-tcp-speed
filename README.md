@@ -1,22 +1,22 @@
 <div align="center">
 
-# Game-TCP-Speed v3.1.1
+# Game-TCP-Speed v3.1.2
 
 ### Windows 进程级 TCP 游戏加速工具（无需 TUN 虚拟网卡 / 不改写系统网关）
 *(纯经典 Win32 API + GDI 双语版，单文件仅 174 KB，内存仅 3~5 MB，极速零依赖)*
 
-[![Release](https://img.shields.io/badge/Release-v3.1.1-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
+[![Release](https://img.shields.io/badge/Release-v3.1.2-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
 [![Language](https://img.shields.io/badge/Language-Pure%20C%2B%2B%20%7C%20Win32%20API-00599C?style=flat-square)](c/)
 [![UI](https://img.shields.io/badge/UI-Pure%20Win32%20%7C%20GDI%20(Bilingual)-brightgreen?style=flat-square)](c/gui/)
 [![Size](https://img.shields.io/badge/Size-174%20KB-success?style=flat-square)](bin/v3.1/)
 [![RAM](https://img.shields.io/badge/RAM-3--5%20MB-success?style=flat-square)](README.md)
-[![Hook](https://img.shields.io/badge/Hook-MinHook%20x64%20(Pure%20Winsock)-orange?style=flat-square)](c/)
+[![Hook](https://img.shields.io/badge/Hook-MinHook%20x64%20(Minimal%20Connect)-orange?style=flat-square)](c/)
 [![Core](https://img.shields.io/badge/Core-Sing--box%20v1.14.2-E65C00?style=flat-square&logo=box)](Sing-box/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20x64-blue?style=flat-square&logo=windows)](README.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 [工作原理](#-工作原理与架构) •
-[v3.1.1 新特性](#-v311-重大升级) •
+[v3.1.2 新特性](#-v312-重大升级) •
 [快速开始](#-快速开始) •
 [技术要点](#-技术要点与排查记录) •
 [目录结构](#-项目目录结构) •
@@ -42,15 +42,17 @@
 
 ---
 
-### 🌟 v3.1.1 重大升级 (过图防崩根治 / 纯净IOCP直通 / IPv6强制回退防封 / 前置就绪锁)
+### 🌟 v3.1.2 重大升级 (极简纯净Hook版 / 仅挂钩connect / 零触碰Socket生命周期)
 
-在 v3.0/v3.1 架构的基础上，**v3.1.1 针对大型 3D 游戏（如魔兽世界 11.2.5）副本地图传送门进出过图（World transfer pending...）底层崩溃进行了根治加固**：
+在经历深度底层剖析与多轮实战后，**v3.1.2 采用极简纯净架构重构底层 Hook 逻辑**：
 
-1. **💥 彻底根除过图崩溃（ERROR #132 ACCESS_VIOLATION 根治）**：
+1. **⚡ 极简纯净 Hook 架构（Minimal Pure Hook）**：
+   - 彻底剥离 `closesocket`、`ioctlsocket`、`WSAEventSelect` 与 `WSAAsyncSelect` 辅助钩子，彻底删除内部 `g_SocketMap` 上下文与跨线程锁争用；
+   - **整个 DLL 仅挂钩 `connect` 与 `WSAConnect`**，在连接建立的最初一瞬间打通 Socks5 专线；
+   - 连接完成后，后续所有数据收发、过图销毁、句柄关闭与事件调度 **100% 走 Windows 原生系统代码**，Hook 模块在游戏运行时处于完全静止状态，实现绝对的零干扰！
+2. **💥 彻底根除过图崩溃（ERROR #132 ACCESS_VIOLATION 根治）**：
    - 彻底废除使用 MinHook 对 `mswsock!ConnectEx` 的汇编机器码行内篡改，消除了 Win11 下因 **RIP 相对寻址指令搬迁失真** 导致的跳板内存不可读异常（`0x000001f843ea7ef5`）；
    - 所有完成端口扩展函数查询 100% 直通 Windows 原生网络协议栈，进出副本地图传送门零崩溃。
-2. **🧹 完善套接字事件绑定的生命周期清理**：
-   - 在 `HookedWSAEventSelect` 与 `HookedWSAAsyncSelect` 中，当游戏重连传入 `NULL/0` 取消监听时，主动从上下文映射表中清空句柄，杜绝操作系统回收复用 Socket 句柄时对失效句柄进行信号操作的隐患。
 3. **🛡️ IPv6 强制回退防封保护**：
    - 国内宽带已普及原生 IPv6，魔兽世界客户端若解析到 AAAA 记录会默认发起 IPv6 连接并绕过代理走原生直连；
    - 导致严重后果：“登录认证走 IPv4 专线，世界服走国内原生 IPv6 直连”，私服检测到 IP 不一致判定多 IP 异常并强制断开（`WOW51900319`）；

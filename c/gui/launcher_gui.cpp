@@ -802,8 +802,8 @@ static void PopulateProbeListView() {
 
 static void ApplyLanguage() {
     // 1. 窗口标题
-    SetWindowTextW(g_hMainWnd, L(L"GameTcpSpeed v3.1.1 | TCP 游戏加速器", 
-                                 L"GameTcpSpeed v3.1.1 | TCP Game Accelerator"));
+    SetWindowTextW(g_hMainWnd, L(L"GameTcpSpeed v3.1.2 | TCP 游戏加速器", 
+                                 L"GameTcpSpeed v3.1.2 | TCP Game Accelerator"));
 
     // 2. 语言切换按钮
     SetWindowTextW(g_hBtnLang, L(L"🇺🇸 English", L"🇨🇳 简体中文"));
@@ -1153,7 +1153,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         LoadSavedSubscriptions();
         ApplyLanguage();
 
-        AppendLog(L"GameTcpSpeed v3.1.1 (过图防崩加固 / 纯净原生IOCP放行 / 悬空事件防护) 初始化就绪。");
+        AppendLog(L"GameTcpSpeed v3.1.2 (极简纯净Hook版 / 仅挂钩connect / 零触碰Socket生命周期) 初始化就绪。");
         return 0;
     }
 
@@ -1318,7 +1318,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     g_hMainWnd = CreateWindowExW(
         0, L"GameTcpSpeed_Win32_Class",
-        L"GameTcpSpeed v3.1.1",
+        L"GameTcpSpeed v3.1.2",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         posX, posY, winWidth, winHeight,
         NULL, NULL, hInstance, NULL);

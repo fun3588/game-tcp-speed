@@ -1,4 +1,4 @@
-# Game-TCP-Speed v3.1.1
+# Game-TCP-Speed v3.1.2
 
 > Game-TCP-Speed is an open-source, ultra-lightweight pure Win32 process-level TCP network game accelerator for Windows. It provides millisecond-level traffic tunneling without TUN/TAP virtual network adapters, WebView bloat, or system gateway routing conflicts.
 
@@ -6,23 +6,22 @@
 
 - Repository: https://github.com/fun3588/game-tcp-speed
 - Primary Architecture: Pure Win32 API + GDI (Native Hook DLL + Native Windows Common Controls)
-- Core Hook Engine: Winsock Inline Hooking (`connect`, `WSAConnect`) via MinHook x64
+- Core Hook Engine: Winsock Minimal Inline Hooking (strictly `connect` and `WSAConnect`) via MinHook x64
 - Dedicated Tunnel: Sing-box TCP stream proxy (AnyTLS + Reality)
 - Target Use Case: Low-latency, jitter-free cross-border game acceleration (e.g., World of Warcraft, Diablo, FFXIV) without interfering with local developer environments (Docker, WSL2, corporate VPNs).
 - Releases: Pre-built portable releases packaged under `bin/v3.1`.
 - Legacy Archived: Previous C# WPF GUI archived under `c#/GameTcpSpeed.Wpf`.
 
-## Key Technical Details in v3.1.1
+## Key Technical Details in v3.1.2
 
 - Ultra-Low Footprint: Only 3 ~ 5 MB RAM, single binary 174 KB, starts in < 0.01s. Zero WebView2 or .NET CLR runtime dependencies.
 - Zero TUN Adapter: Operates purely in user space. No virtual NIC or system routing table modifications.
+- Minimal Pure Hook Architecture: Exclusively hooks `connect` and `WSAConnect`. Completely eliminates auxiliary hooks (`closesocket`, `ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`), socket context tracking maps, and lock contention. Socket lifecycles flow 100% through native Windows drivers.
 - World Transfer Crash Elimination: Completely removed MinHook inline splicing on `mswsock!ConnectEx`. Eliminates Windows 11 RIP-relative instruction displacement faults (`ERROR #132 ACCESS_VIOLATION` in anonymous trampoline memory).
-- Socket Event Clean-Up: Properly purges closed event handles on `WSAEventSelect` unbinds to eliminate stale handle reuse bugs.
 - IPv6 Leak Defense: Intercepts `AF_INET6` connections with `WSAEAFNOSUPPORT`, forcing game engines to fall back to IPv4, preventing domestic ISP IPv6 leakage and multi-IP security bans.
 - Zero-Side-Effect Socket Probe: Ephemeral socket health check protects game original sockets against `WSAEINVAL (10022)` during fallback.
 - Pre-flight Readiness Lock: 50ms verification loop ensures proxy inbound accepts connections before injecting.
 - Clean Remote Ejection: Supports on-the-fly `FreeLibrary` unhooking to immediately restore direct connectivity without exiting the game.
-- Non-Blocking Socket Preservation: Automatically restores non-blocking socket modes (`ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`) and emits `FD_CONNECT` / `SetEvent` signals to prevent game main-thread freezes.
 - Multi-Client Auto-Injection Boost: 200ms background polling for instantaneous multi-boxing detection.
 - Bilingual Support: Instant runtime dynamic switching between Simplified Chinese and English (<1ms).
 - Real-Time Network Probe: Host-to-game physical RTT measurements.

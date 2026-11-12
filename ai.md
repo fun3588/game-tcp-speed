@@ -1,4 +1,4 @@
-# AI 协作与维护指南 v3.1.1 (AI Collaboration & Maintenance Guide v3.1.1)
+# AI 协作与维护指南 v3.1.2 (AI Collaboration & Maintenance Guide v3.1.2)
 
 [中文说明](#-中文说明) • [English Documentation](#-english-documentation)
 
@@ -8,15 +8,18 @@
 
 > 本文档是给 AI 助手与开发者的交接规范文档，进行代码维护与二次开发时请严格遵循以下准则。
 
-### 核心约束与架构规范 (v3.1.1)
+### 核心约束与架构规范 (v3.1.2)
 
 1. **纯经典 Win32 API + GDI 架构准则**：
    - 官方唯一客户端全栈采用纯 C/C++ 编译，前端为 `c/gui/launcher_gui.cpp`（纯原生 Win32 API + GDI），底层为 `c/dll/hook_proxy.cpp`；
    - **严禁引入 WebView2、Electron、WPF 或重型第三方渲染库**，确保可执行文件单文件体积 ≤ 200 KB，运行时内存常驻在 **3 MB ~ 5 MB**，启动即开；
    - 原 C# WPF 方案已封存归档于 `c#/GameTcpSpeed.Wpf` 目录作为历史参考，日常构建与发布全部基于 `bin/v3.1` 与 `build_all.ps1`。
-2. **严禁引入 TUN / TAP 虚拟网卡**：
+2. **极简纯净 Hook 原则 (Minimal Pure Hook Invariant)**：
+   - 底层 Hook 模块**仅挂钩 `connect` 与 `WSAConnect`**，严禁挂钩 `closesocket`、`ioctlsocket`、`WSAEventSelect`、`WSAAsyncSelect` 或 `WSAIoctl`；
+   - 不在内存中维护任何 Socket 上下文映射表（`g_SocketMap`），消除锁争用。所有发送接收统一基于超时 `select()`；连接一旦建立，后续数据流与过图关闭 100% 走系统原生代码。
+3. **严禁引入 TUN / TAP 虚拟网卡**：
    - 坚持“用户态 Winsock 行内 Hook 拦截”原则，严禁安装虚拟网卡或改写系统默认路由网关。
-3. **严禁对 `mswsock.dll` / `ConnectEx` 执行机器码篡改 (Anti-Trampoline Invariant)**：
+4. **严禁对 `mswsock.dll` / `ConnectEx` 执行机器码篡改**：
    - Windows 10/11 x64 下 `mswsock.dll` 内部指令高度经过编译器优化与 CFG 插桩，包含基于 `RIP` 的相对寻址指令。MinHook 搬迁至匿名跳板页后相对偏移失真，过图调用 IOCP 时会触发非法内存访问崩溃（`ERROR #132 ACCESS_VIOLATION`）；
    - 必须放行所有完成端口扩展查询直通 Windows 原生协议栈，绝对严禁对 `mswsock.dll` 函数体进行 MinHook Inline Patch。
 4. **套接字生命周期与事件解绑清理规范**：

@@ -24,33 +24,12 @@ static DWORD g_lastConfigCheck = 0;
 // 无锁会导致读到半更新的 IP 字符串。
 static std::mutex g_ConfigMutex;
 
-// 原函数指针
+// 原函数指针 (仅拦截 connect 与 WSAConnect，实现极简纯净加速，零干扰过图与 Socket 生命周期)
 typedef int (WSAAPI* PFN_CONNECT)(SOCKET s, const sockaddr* name, int namelen);
 typedef int (WSAAPI* PFN_WSACONNECT)(SOCKET s, const sockaddr* name, int namelen, LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS);
-typedef int (WSAAPI* PFN_IOCTLSOCKET)(SOCKET s, long cmd, u_long* argp);
-typedef int (WSAAPI* PFN_CLOSESOCKET)(SOCKET s);
-typedef int (WSAAPI* PFN_WSAEVENTSELECT)(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents);
-typedef int (WSAAPI* PFN_WSAASYNCSELECT)(SOCKET s, HWND hWnd, u_int wMsg, long lEvent);
 
 static PFN_CONNECT pOriginalConnect = NULL;
 static PFN_WSACONNECT pOriginalWSAConnect = NULL;
-static PFN_IOCTLSOCKET pOriginalIoctlsocket = NULL;
-static PFN_CLOSESOCKET pOriginalClosesocket = NULL;
-static PFN_WSAEVENTSELECT pOriginalWSAEventSelect = NULL;
-static PFN_WSAASYNCSELECT pOriginalWSAAsyncSelect = NULL;
-
-// 跟踪每个 Socket 的非阻塞状态
-struct SocketContext {
-    bool isNonBlocking;
-    WSAEVENT hEvent;
-    long networkEvents;
-    HWND hWnd;
-    u_int wMsg;
-    long asyncEvents;
-};
-
-static std::mutex g_SocketMutex;
-static std::unordered_map<SOCKET, SocketContext> g_SocketMap;
 
 // 线程内部重入标记
 static thread_local BOOL g_InHook = FALSE;
@@ -141,8 +120,7 @@ static bool CheckProxyPortAlive(const char* ip, unsigned short port) {
             }
         }
     }
-    if (pOriginalClosesocket) pOriginalClosesocket(s);
-    else closesocket(s);
+    closesocket(s);
     return alive;
 }
 
@@ -453,21 +431,6 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
             if (DoSocks5Handshake(s, targetIp, targetPort)) {
                 WriteLog("[TCP 成功] 已打通 Socks5 隧道并连接目标: %s:%d", ipStr, portNum);
 
-                // 唤醒游戏可能关联的事件句柄，但绝不调用 WSAEventSelect 清空内部事件！
-                {
-                    std::lock_guard<std::mutex> lock(g_SocketMutex);
-                    auto it = g_SocketMap.find(s);
-                    if (it != g_SocketMap.end()) {
-                        if (it->second.hEvent != NULL) {
-                            SetEvent(it->second.hEvent);
-                        }
-                        if (it->second.hWnd != NULL && it->second.wMsg != 0) {
-                            PostMessageW(it->second.hWnd, it->second.wMsg, (WPARAM)s, WSAMAKESELECTREPLY(FD_CONNECT, 0));
-                            PostMessageW(it->second.hWnd, it->second.wMsg, (WPARAM)s, WSAMAKESELECTREPLY(FD_WRITE, 0));
-                        }
-                    }
-                }
-
                 WSASetLastError(0);
                 return 0; // 返回成功骗过游戏
             } else {
@@ -498,67 +461,9 @@ int WSAAPI HookedWSAConnect(SOCKET s, const sockaddr* name, int namelen, LPWSABU
     return HandleRedirectConnect(s, name, namelen, TRUE, lpCallerData, lpCalleeData, lpSQOS, lpGQOS);
 }
 
-// Hook ioctlsocket 捕获游戏设置非阻塞
-int WSAAPI HookedIoctlsocket(SOCKET s, long cmd, u_long* argp) {
-    if (cmd == FIONBIO && argp) {
-        std::lock_guard<std::mutex> lock(g_SocketMutex);
-        g_SocketMap[s].isNonBlocking = (*argp != 0);
-    }
-    return pOriginalIoctlsocket(s, cmd, argp);
-}
-
-// Hook closesocket 及时释放 SocketContext，杜绝长生命周期多开内存泄漏
-int WSAAPI HookedClosesocket(SOCKET s) {
-    {
-        std::lock_guard<std::mutex> lock(g_SocketMutex);
-        g_SocketMap.erase(s);
-    }
-    return pOriginalClosesocket(s);
-}
-
-// Hook WSAEventSelect 捕获游戏事件通知绑定
-int WSAAPI HookedWSAEventSelect(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents) {
-    {
-        std::lock_guard<std::mutex> lock(g_SocketMutex);
-        if (hEventObject != NULL && lNetworkEvents != 0) {
-            g_SocketMap[s].isNonBlocking = true;
-            g_SocketMap[s].hEvent = hEventObject;
-            g_SocketMap[s].networkEvents = lNetworkEvents;
-        } else {
-            auto it = g_SocketMap.find(s);
-            if (it != g_SocketMap.end()) {
-                it->second.hEvent = NULL;
-                it->second.networkEvents = 0;
-            }
-        }
-    }
-    return pOriginalWSAEventSelect(s, hEventObject, lNetworkEvents);
-}
-
-// Hook WSAAsyncSelect 捕获消息窗口通知绑定
-int WSAAPI HookedWSAAsyncSelect(SOCKET s, HWND hWnd, u_int wMsg, long lEvent) {
-    {
-        std::lock_guard<std::mutex> lock(g_SocketMutex);
-        if (hWnd != NULL && wMsg != 0 && lEvent != 0) {
-            g_SocketMap[s].isNonBlocking = true;
-            g_SocketMap[s].hWnd = hWnd;
-            g_SocketMap[s].wMsg = wMsg;
-            g_SocketMap[s].asyncEvents = lEvent;
-        } else {
-            auto it = g_SocketMap.find(s);
-            if (it != g_SocketMap.end()) {
-                it->second.hWnd = NULL;
-                it->second.wMsg = 0;
-                it->second.asyncEvents = 0;
-            }
-        }
-    }
-    return pOriginalWSAAsyncSelect(s, hWnd, wMsg, lEvent);
-}
-
 // 导出版本标识供外部注入检查（防二次注入）
 extern "C" __declspec(dllexport) DWORD WINAPI GameTcpSpeed_GetVersion() {
-    return 0x030101; // v3.1.1
+    return 0x030102; // v3.1.2
 }
 
 extern "C" __declspec(dllexport) void WINAPI GameTcpSpeed_Disable() {
@@ -571,30 +476,26 @@ extern "C" __declspec(dllexport) void WINAPI GameTcpSpeed_Enable() {
     WriteLog("[主动启用] 已启用专线代理重定向");
 }
 
-// DLL 入口点
+// DLL 入口点 (极简纯净Hook：仅挂钩 connect / WSAConnect，零触碰 Socket 生命周期与事件机制)
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         LoadConfig(hModule);
-        WriteLog("=== Hook DLL v3.1.1 载入进程 (PID: %lu) ===", GetCurrentProcessId());
+        WriteLog("=== Hook DLL v3.1.2 (极简纯净加速版) 载入进程 (PID: %lu) ===", GetCurrentProcessId());
 
         if (MH_Initialize() == MH_OK) {
             MH_CreateHookApi(L"ws2_32.dll", "connect", (LPVOID)&HookedConnect, (LPVOID*)&pOriginalConnect);
             MH_CreateHookApi(L"ws2_32.dll", "WSAConnect", (LPVOID)&HookedWSAConnect, (LPVOID*)&pOriginalWSAConnect);
-            MH_CreateHookApi(L"ws2_32.dll", "ioctlsocket", (LPVOID)&HookedIoctlsocket, (LPVOID*)&pOriginalIoctlsocket);
-            MH_CreateHookApi(L"ws2_32.dll", "closesocket", (LPVOID)&HookedClosesocket, (LPVOID*)&pOriginalClosesocket);
-            MH_CreateHookApi(L"ws2_32.dll", "WSAEventSelect", (LPVOID)&HookedWSAEventSelect, (LPVOID*)&pOriginalWSAEventSelect);
-            MH_CreateHookApi(L"ws2_32.dll", "WSAAsyncSelect", (LPVOID)&HookedWSAAsyncSelect, (LPVOID*)&pOriginalWSAAsyncSelect);
             MH_EnableHook(MH_ALL_HOOKS);
 
-            WriteLog("Winsock Hook v3.1.1 (过图防崩加固 / 纯净原生IOCP放行 / 悬空事件防护) 已成功激活！");
+            WriteLog("Winsock Hook v3.1.2 (极简纯净加速 / 仅挂钩connect / 零触碰Socket生命周期) 已成功激活！");
         } else {
             WriteLog("MinHook 初始化失败！");
         }
     } else if (ul_reason_for_call == DLL_PROCESS_DETACH) {
         MH_DisableHook(MH_ALL_HOOKS);
         MH_Uninitialize();
-        WriteLog("=== Hook DLL v3.1.1 卸载 ===");
+        WriteLog("=== Hook DLL v3.1.2 卸载 ===");
     }
     return TRUE;
 }

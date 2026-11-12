@@ -1,4 +1,4 @@
-# C 模块：纯经典 Win32 API + GDI 极速客户端与 Winsock Hook 核心 (v3.1.1)
+# C 模块：纯经典 Win32 API + GDI 极速客户端与 Winsock Hook 核心 (v3.1.2)
 
 [中文说明](#-中文说明) • [English Documentation](#-english-documentation)
 
@@ -6,19 +6,19 @@
 
 ## 🇨🇳 中文说明
 
-本目录包含 **Winsock API Hook** 进程级 TCP 拦截动态链接库（`hook_proxy.dll`）以及 v3.1.1 纯经典 Win32 旗舰图形客户端（`GameTcpSpeed.exe`）。
+本目录包含 **Winsock API Hook** 进程级 TCP 拦截动态链接库（`hook_proxy.dll`）以及 v3.1.2 纯经典 Win32 旗舰图形客户端（`GameTcpSpeed.exe`）。
 
-### v3.1.1 核心特性
+### v3.1.2 核心特性
 
 1. **纯经典 Win32 API + GDI (零外部依赖)**：
    - 彻底摒弃一切 WebView2、Electron 与 .NET 托管运行时的数百兆内存开销；
    - 运行时内存仅 **3 ~ 5 MB**，启动毫秒级秒开，单文件仅 **174 KB**；
    - 纯原生 Windows 控件与 GDI 绘制，零 DirectX 依赖，在任何纯净精简系统上均可直接运行。
-2. **过图防崩根治与原生 IOCP 放行 (World Transfer Anti-Crash)**：
-   - 彻底废除使用 MinHook 对 `mswsock!ConnectEx` 的汇编行内篡改，根除了 Win11 下 **RIP 相对寻址指令搬迁失真** 导致的跳板内存访问越界（`0x000001f843ea7ef5`）与 `ERROR #132` 崩溃；
-   - 魔兽世界进出副本地图传送门（`World transfer pending...`）过图重连 100% 稳定运行。
-3. **套接字事件生命周期清理**：
-   - 修复 `WSAEventSelect` / `WSAAsyncSelect` 取消绑定时的句柄残留，杜绝句柄复用引发悬空信号操作。
+2. **极简纯净 Hook（Minimal Pure Hook）**：
+   - 整个 DLL **仅挂钩 `connect` 与 `WSAConnect`**，完全剥离 `closesocket` / `ioctlsocket` / `WSAEventSelect` / `WSAAsyncSelect`；
+   - 彻底删除内部 Socket 上下文映射与锁争用，连接一旦建立，后续过图注销、句柄释放、事件调度 **100% 走原生 Windows 驱动**，从根本上杜绝任何微秒级竞态与过图崩溃。
+3. **彻底根除 ConnectEx 跳板越界**：
+   - 不修改 `mswsock.dll` 任何代码页，彻底消除 Win11 下 RIP 相对寻址指令搬迁失真引发的 `ERROR #132`。
 4. **中英双语即时一键热切换**：
    - 窗口右上角集成 `[ 🇨🇳 简体中文 / 🇺🇸 English ]` 原生按钮，点击瞬间重载界面所有文本。
 5. **IPv6 泄露拦截与双栈强制回退 (Anti-Leak Fallback)**：
@@ -38,8 +38,8 @@
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 产物输出至当前目录：
-- `GameTcpSpeed.exe`：纯经典 Win32 API + GDI 双语版主程序 (v3.1.1)。
-- `hook_proxy.dll`：注入核心动态链接库 (v3.1.1)。
+- `GameTcpSpeed.exe`：纯经典 Win32 API + GDI 双语版主程序 (v3.1.2)。
+- `hook_proxy.dll`：注入核心动态链接库 (v3.1.2)。
 
 ---
 
