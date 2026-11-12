@@ -5,8 +5,8 @@ IDI_APP_ICON ICON "app.ico"
 // 版本信息：Windows 资源管理器「属性 → 详细信息」里可见，
 // 便于区分已部署的构建版本，避免 DLL 与 GUI 版本错配。
 1 VERSIONINFO
-FILEVERSION     3,1,0,0
-PRODUCTVERSION  3,1,0,0
+FILEVERSION     3,1,1,0
+PRODUCTVERSION  3,1,1,0
 FILEFLAGSMASK   0x3fL
 FILEFLAGS       0x0L
 FILEOS          0x40004L
@@ -18,12 +18,12 @@ BEGIN
         BLOCK "080404b0"
         BEGIN
             VALUE "CompanyName",      "GameTcpSpeed"
-            VALUE "FileDescription",  "GameTcpSpeed - TCP Game Accelerator (v3.1)"
-            VALUE "FileVersion",      "3.1.0.0"
+            VALUE "FileDescription",  "GameTcpSpeed - TCP Game Accelerator (v3.1.1)"
+            VALUE "FileVersion",      "3.1.1.0"
             VALUE "InternalName",     "GameTcpSpeed"
             VALUE "OriginalFilename", "GameTcpSpeed.exe"
             VALUE "ProductName",      "GameTcpSpeed"
-            VALUE "ProductVersion",   "3.1.0.0"
+            VALUE "ProductVersion",   "3.1.1.0"
         END
     END
     BLOCK "VarFileInfo"
