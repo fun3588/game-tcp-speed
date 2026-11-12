@@ -542,6 +542,28 @@ static BOOL EjectDllByPid(DWORD pid) {
     HANDLE hProcess = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION, FALSE, pid);
     if (!hProcess) return FALSE;
 
+    // 【安全卸载升级】: 优先调用导出函数 GameTcpSpeed_Disable() 将 Hook 切换为原生直连旁路
+    // 杜绝直接暴力 FreeLibrary 导致运行中游戏线程崩溃 (ERROR #132 ACCESS_VIOLATION)
+    HMODULE hLocalDll = LoadLibraryW(L"hook_proxy.dll");
+    FARPROC pfnDisable = NULL;
+    if (hLocalDll) {
+        FARPROC pfnLocal = GetProcAddress(hLocalDll, "GameTcpSpeed_Disable");
+        if (pfnLocal) {
+            DWORD_PTR offset = (DWORD_PTR)pfnLocal - (DWORD_PTR)hLocalDll;
+            pfnDisable = (FARPROC)((DWORD_PTR)hTargetModule + offset);
+        }
+        FreeLibrary(hLocalDll);
+    }
+
+    if (pfnDisable) {
+        HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pfnDisable, NULL, 0, NULL);
+        if (hThread) {
+            WaitForSingleObject(hThread, 2000);
+            CloseHandle(hThread);
+        }
+    }
+
+    // 尝试 FreeLibrary (若模块已启用 PIN 锁定，此操作被内核安全忽略，模块常驻但已切为纯直连)
     LPTHREAD_START_ROUTINE pFreeLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FreeLibrary");
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, pFreeLibrary, (LPVOID)hTargetModule, 0, NULL);
 
@@ -554,8 +576,8 @@ static BOOL EjectDllByPid(DWORD pid) {
     g_InjectedPids.erase(pid);
     wchar_t msg[128];
     _snwprintf(msg, sizeof(msg)/sizeof(wchar_t), 
-               L(L"√ 已安全卸载 PID %lu 的 Hook 模块，游戏已恢复原生物理直连！", 
-                 L"√ Unhooked PID %lu. Restored direct connection!"), pid);
+               L(L"√ 已安全旁路/卸载 PID %lu 的 Hook 模块，游戏已恢复原生物理直连！", 
+                 L"√ Safely bypassed/unhooked PID %lu. Restored direct connection!"), pid);
     AppendLog(msg);
     return TRUE;
 }

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <unordered_map>
 #include <mutex>
+#include <atomic>
 #include "../minhook/include/MinHook.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -18,6 +19,10 @@ static BOOL g_ProxyEnabled = TRUE;
 static char g_LogPath[MAX_PATH] = "proxy_hook.log";
 static HMODULE g_hModule = NULL;
 static DWORD g_lastConfigCheck = 0;
+
+// 活动 Hook 调用计数屏障，防止卸载/禁用时并发线程崩溃
+static std::atomic<int> g_ActiveHookCount(0);
+static std::atomic<bool> g_IsDetaching(false);
 
 // 保护 g_ProxyIp / g_ProxyPort / g_ProxyEnabled 的并发访问。
 // 多开时同一进程内会有多个游戏线程同时调用 connect，而配置刷新是写操作，
@@ -454,16 +459,22 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
 
 // Hook 包装函数
 int WSAAPI HookedConnect(SOCKET s, const sockaddr* name, int namelen) {
-    return HandleRedirectConnect(s, name, namelen, FALSE, NULL, NULL, NULL, NULL);
+    g_ActiveHookCount.fetch_add(1, std::memory_order_relaxed);
+    int res = HandleRedirectConnect(s, name, namelen, FALSE, NULL, NULL, NULL, NULL);
+    g_ActiveHookCount.fetch_sub(1, std::memory_order_relaxed);
+    return res;
 }
 
 int WSAAPI HookedWSAConnect(SOCKET s, const sockaddr* name, int namelen, LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS) {
-    return HandleRedirectConnect(s, name, namelen, TRUE, lpCallerData, lpCalleeData, lpSQOS, lpGQOS);
+    g_ActiveHookCount.fetch_add(1, std::memory_order_relaxed);
+    int res = HandleRedirectConnect(s, name, namelen, TRUE, lpCallerData, lpCalleeData, lpSQOS, lpGQOS);
+    g_ActiveHookCount.fetch_sub(1, std::memory_order_relaxed);
+    return res;
 }
 
 // 导出版本标识供外部注入检查（防二次注入）
 extern "C" __declspec(dllexport) DWORD WINAPI GameTcpSpeed_GetVersion() {
-    return 0x030102; // v3.1.2
+    return 0x030103; // v3.1.3
 }
 
 extern "C" __declspec(dllexport) void WINAPI GameTcpSpeed_Disable() {
@@ -480,22 +491,44 @@ extern "C" __declspec(dllexport) void WINAPI GameTcpSpeed_Enable() {
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
+        g_hModule = hModule;
+
+        // 【核心防御 1: 模块常驻锁定 (Module Pinning)】
+        // 游戏网络多线程极其密集，若外部执行 FreeLibrary 或远线程卸载，
+        // 会导致运行中的游戏网络线程 RIP 落在被释放的内存页而触发 ACCESS_VIOLATION。
+        // 通过 GET_MODULE_HANDLE_EX_FLAG_PIN 锁定模块常驻内存，
+        // 外部 FreeLibrary 会被 Windows 内核安全忽略，要停用加速走旁路标志位，杜绝野指针崩溃！
+        HMODULE hPinned = NULL;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                           (LPCWSTR)hModule, &hPinned);
+
         LoadConfig(hModule);
-        WriteLog("=== Hook DLL v3.1.2 (极简纯净加速版) 载入进程 (PID: %lu) ===", GetCurrentProcessId());
+        WriteLog("=== Hook DLL v3.1.3 (常驻安全防崩版) 载入进程 (PID: %lu) ===", GetCurrentProcessId());
 
         if (MH_Initialize() == MH_OK) {
             MH_CreateHookApi(L"ws2_32.dll", "connect", (LPVOID)&HookedConnect, (LPVOID*)&pOriginalConnect);
             MH_CreateHookApi(L"ws2_32.dll", "WSAConnect", (LPVOID)&HookedWSAConnect, (LPVOID*)&pOriginalWSAConnect);
             MH_EnableHook(MH_ALL_HOOKS);
 
-            WriteLog("Winsock Hook v3.1.2 (极简纯净加速 / 仅挂钩connect / 零触碰Socket生命周期) 已成功激活！");
+            WriteLog("Winsock Hook v3.1.3 (常驻防崩 / 极简纯净 / 仅挂钩connect / 零触碰Socket生命周期) 已成功激活！");
         } else {
             WriteLog("MinHook 初始化失败！");
         }
     } else if (ul_reason_for_call == DLL_PROCESS_DETACH) {
+        g_IsDetaching.store(true, std::memory_order_release);
+        g_ProxyEnabled = FALSE;
+
+        // 【核心防御 2: 退出屏障与优雅等待 (Drain Barrier)】
+        // 若宿主进程自身正常退出时触发展开，必须等待所有正在执行 HookedConnect 的工作线程退出 Detour 区域
+        int spinWait = 0;
+        while (g_ActiveHookCount.load(std::memory_order_acquire) > 0 && spinWait < 100) {
+            Sleep(10);
+            spinWait++;
+        }
+
         MH_DisableHook(MH_ALL_HOOKS);
         MH_Uninitialize();
-        WriteLog("=== Hook DLL v3.1.2 卸载 ===");
+        WriteLog("=== Hook DLL v3.1.3 安全卸载 (Drain耗时: %dms) ===", spinWait * 10);
     }
     return TRUE;
 }
