@@ -31,8 +31,6 @@ typedef int (WSAAPI* PFN_IOCTLSOCKET)(SOCKET s, long cmd, u_long* argp);
 typedef int (WSAAPI* PFN_CLOSESOCKET)(SOCKET s);
 typedef int (WSAAPI* PFN_WSAEVENTSELECT)(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents);
 typedef int (WSAAPI* PFN_WSAASYNCSELECT)(SOCKET s, HWND hWnd, u_int wMsg, long lEvent);
-typedef BOOL (PASCAL FAR * LPFN_CONNECTEX)(SOCKET s, const struct sockaddr FAR *name, int namelen, PVOID lpSendBuffer, DWORD dwSendDataLength, LPDWORD lpdwBytesSent, LPOVERLAPPED lpOverlapped);
-typedef int (WSAAPI* PFN_WSAIOCTL)(SOCKET s, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuffer, LPVOID lpvOutBuffer, DWORD cbOutBuffer, LPDWORD lpcbBytesReturned, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
 
 static PFN_CONNECT pOriginalConnect = NULL;
 static PFN_WSACONNECT pOriginalWSAConnect = NULL;
@@ -40,8 +38,6 @@ static PFN_IOCTLSOCKET pOriginalIoctlsocket = NULL;
 static PFN_CLOSESOCKET pOriginalClosesocket = NULL;
 static PFN_WSAEVENTSELECT pOriginalWSAEventSelect = NULL;
 static PFN_WSAASYNCSELECT pOriginalWSAAsyncSelect = NULL;
-static LPFN_CONNECTEX pOriginalConnectEx = NULL;
-static PFN_WSAIOCTL pOriginalWSAIoctl = NULL;
 
 // 跟踪每个 Socket 的非阻塞状态
 struct SocketContext {
@@ -522,101 +518,47 @@ int WSAAPI HookedClosesocket(SOCKET s) {
 
 // Hook WSAEventSelect 捕获游戏事件通知绑定
 int WSAAPI HookedWSAEventSelect(SOCKET s, WSAEVENT hEventObject, long lNetworkEvents) {
-    if (hEventObject != NULL) {
+    {
         std::lock_guard<std::mutex> lock(g_SocketMutex);
-        g_SocketMap[s].isNonBlocking = true;
-        g_SocketMap[s].hEvent = hEventObject;
-        g_SocketMap[s].networkEvents = lNetworkEvents;
+        if (hEventObject != NULL && lNetworkEvents != 0) {
+            g_SocketMap[s].isNonBlocking = true;
+            g_SocketMap[s].hEvent = hEventObject;
+            g_SocketMap[s].networkEvents = lNetworkEvents;
+        } else {
+            auto it = g_SocketMap.find(s);
+            if (it != g_SocketMap.end()) {
+                it->second.hEvent = NULL;
+                it->second.networkEvents = 0;
+            }
+        }
     }
     return pOriginalWSAEventSelect(s, hEventObject, lNetworkEvents);
 }
 
 // Hook WSAAsyncSelect 捕获消息窗口通知绑定
 int WSAAPI HookedWSAAsyncSelect(SOCKET s, HWND hWnd, u_int wMsg, long lEvent) {
-    if (hWnd != NULL) {
+    {
         std::lock_guard<std::mutex> lock(g_SocketMutex);
-        g_SocketMap[s].isNonBlocking = true;
-        g_SocketMap[s].hWnd = hWnd;
-        g_SocketMap[s].wMsg = wMsg;
-        g_SocketMap[s].asyncEvents = lEvent;
+        if (hWnd != NULL && wMsg != 0 && lEvent != 0) {
+            g_SocketMap[s].isNonBlocking = true;
+            g_SocketMap[s].hWnd = hWnd;
+            g_SocketMap[s].wMsg = wMsg;
+            g_SocketMap[s].asyncEvents = lEvent;
+        } else {
+            auto it = g_SocketMap.find(s);
+            if (it != g_SocketMap.end()) {
+                it->second.hWnd = NULL;
+                it->second.wMsg = 0;
+                it->second.asyncEvents = 0;
+            }
+        }
     }
     return pOriginalWSAAsyncSelect(s, hWnd, wMsg, lEvent);
 }
 
-// Hook ConnectEx (异步 IOCP 连接拦截)
-BOOL PASCAL FAR HookedConnectEx(
-    SOCKET s,
-    const struct sockaddr FAR *name,
-    int namelen,
-    PVOID lpSendBuffer,
-    DWORD dwSendDataLength,
-    LPDWORD lpdwBytesSent,
-    LPOVERLAPPED lpOverlapped
-) {
-    // 异步 ConnectEx 在没有完整的非阻塞 Socks5 Overlapped 状态机的情况下，
-    // 若强行改写到 127.0.0.1 会导致完成端口在无握手情况下收到业务流而断开。
-    // 因此对于异步 IOCP ConnectEx 调用，必须优先放行原始直连，确保 IOCP 链路完全健康！
-    if (pOriginalConnectEx) {
-        return pOriginalConnectEx(s, name, namelen, lpSendBuffer, dwSendDataLength, lpdwBytesSent, lpOverlapped);
-    }
-    return FALSE;
-}
-
-// Hook WSAIoctl 捕获扩展函数指针查询
-int WSAAPI HookedWSAIoctl(
-    SOCKET s,
-    DWORD dwIoControlCode,
-    LPVOID lpvInBuffer,
-    DWORD cbInBuffer,
-    LPVOID lpvOutBuffer,
-    DWORD cbOutBuffer,
-    LPDWORD lpcbBytesReturned,
-    LPWSAOVERLAPPED lpOverlapped,
-    LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
-) {
-    int res = pOriginalWSAIoctl(s, dwIoControlCode, lpvInBuffer, cbInBuffer, lpvOutBuffer, cbOutBuffer, lpcbBytesReturned, lpOverlapped, lpCompletionRoutine);
-    if (res == 0 && dwIoControlCode == SIO_GET_EXTENSION_FUNCTION_POINTER && lpvInBuffer && lpvOutBuffer) {
-        GUID* pGuid = (GUID*)lpvInBuffer;
-        GUID guidConnectEx = WSAID_CONNECTEX;
-        if (memcmp(pGuid, &guidConnectEx, sizeof(GUID)) == 0) {
-            LPFN_CONNECTEX* ppConnectEx = (LPFN_CONNECTEX*)lpvOutBuffer;
-            if (*ppConnectEx && *ppConnectEx != HookedConnectEx) {
-                if (!pOriginalConnectEx) {
-                    pOriginalConnectEx = *ppConnectEx;
-                }
-                *ppConnectEx = HookedConnectEx;
-                WriteLog("[WSAIoctl 拦截] 拦截到 WSAID_CONNECTEX 函数指针获取，已成功替换为 HookedConnectEx！");
-            }
-        }
-    }
-    return res;
-}
-
-// 主动获取并 Hook ConnectEx
-static void TryHookConnectExDirectly() {
-    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (s != INVALID_SOCKET) {
-        GUID guidConnectEx = WSAID_CONNECTEX;
-        LPFN_CONNECTEX pConnectEx = NULL;
-        DWORD dwBytes = 0;
-        int rc = WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER,
-            &guidConnectEx, sizeof(guidConnectEx),
-            &pConnectEx, sizeof(pConnectEx),
-            &dwBytes, NULL, NULL);
-        closesocket(s);
-
-        if (rc == 0 && pConnectEx) {
-            if (MH_CreateHook((LPVOID)pConnectEx, (LPVOID)&HookedConnectEx, (LPVOID*)&pOriginalConnectEx) == MH_OK) {
-                MH_EnableHook((LPVOID)pConnectEx);
-                WriteLog("[主动 Hook] 成功对 mswsock!ConnectEx 挂接行内钩子！地址: %p", pConnectEx);
-            }
-        }
-    }
-}
-
 // 导出版本标识供外部注入检查（防二次注入）
 extern "C" __declspec(dllexport) DWORD WINAPI GameTcpSpeed_GetVersion() {
-    return 0x030100; // v3.1.0
+    return 0x030101; // v3.1.1
 }
 
 extern "C" __declspec(dllexport) void WINAPI GameTcpSpeed_Disable() {
@@ -634,7 +576,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         LoadConfig(hModule);
-        WriteLog("=== Hook DLL v3.1 载入进程 (PID: %lu) ===", GetCurrentProcessId());
+        WriteLog("=== Hook DLL v3.1.1 载入进程 (PID: %lu) ===", GetCurrentProcessId());
 
         if (MH_Initialize() == MH_OK) {
             MH_CreateHookApi(L"ws2_32.dll", "connect", (LPVOID)&HookedConnect, (LPVOID*)&pOriginalConnect);
@@ -643,20 +585,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             MH_CreateHookApi(L"ws2_32.dll", "closesocket", (LPVOID)&HookedClosesocket, (LPVOID*)&pOriginalClosesocket);
             MH_CreateHookApi(L"ws2_32.dll", "WSAEventSelect", (LPVOID)&HookedWSAEventSelect, (LPVOID*)&pOriginalWSAEventSelect);
             MH_CreateHookApi(L"ws2_32.dll", "WSAAsyncSelect", (LPVOID)&HookedWSAAsyncSelect, (LPVOID*)&pOriginalWSAAsyncSelect);
-            MH_CreateHookApi(L"ws2_32.dll", "WSAIoctl", (LPVOID)&HookedWSAIoctl, (LPVOID*)&pOriginalWSAIoctl);
             MH_EnableHook(MH_ALL_HOOKS);
 
-            // 主动拦截异步 IOCP ConnectEx (针对魔兽世界等大型 3D 游戏已运行状态免重启接管)
-            TryHookConnectExDirectly();
-
-            WriteLog("Winsock Hook v3.1 (IPv6主动回退 + 前置就绪锁 + 8080私服支持 + 无损平滑降级) 已成功激活！");
+            WriteLog("Winsock Hook v3.1.1 (过图防崩加固 / 纯净原生IOCP放行 / 悬空事件防护) 已成功激活！");
         } else {
             WriteLog("MinHook 初始化失败！");
         }
     } else if (ul_reason_for_call == DLL_PROCESS_DETACH) {
         MH_DisableHook(MH_ALL_HOOKS);
         MH_Uninitialize();
-        WriteLog("=== Hook DLL v3.1 卸载 ===");
+        WriteLog("=== Hook DLL v3.1.1 卸载 ===");
     }
     return TRUE;
 }

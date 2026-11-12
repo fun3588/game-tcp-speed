@@ -8,6 +8,7 @@
 *.pdb
 *.ilk
 *.old
+*.locked
 __pycache__/
 build/
 c/build/
