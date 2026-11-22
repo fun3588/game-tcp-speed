@@ -13,7 +13,8 @@
 1. **纯经典 Win32 API + GDI 架构准则**：
    - 官方唯一客户端全栈采用纯 C/C++ 编译，前端为 `c/gui/launcher_gui.cpp`（纯原生 Win32 API + GDI），底层为 `c/dll/hook_proxy.cpp`；
    - **严禁引入 WebView2、Electron、WPF 或重型第三方渲染库**，确保可执行文件单文件体积 ≤ 350 KB（静态链接 libstdc++/libgcc/winpthread 并链接期 `-s` 剥离符号后的体积上限），运行时内存常驻在 **3 MB ~ 5 MB**，启动即开；
-   - 原 C# WPF 方案已封存归档于 `c#/GameTcpSpeed.Wpf` 目录作为历史参考，日常构建与发布全部基于 `bin/v3.1` 与 `build_all.bat`（仓库内不保留任何 `.ps1` 脚本，构建链只用 `.bat`，避免 PowerShell 执行策略与签名问题）；
+   - 原 C# WPF 方案已封存归档于 `c#/GameTcpSpeed.Wpf` 目录作为历史参考，日常构建与发布全部基于 `bin/v3.1` 与 `build_all.bat`（构建链只用 `.bat`，避免执行策略与签名问题）；
+   - **PowerShell 只在无法替代处保留**：当前仅 `tools/*.cmd` 的 UAC 自提权一行使用 `-Command` 形式（不受执行策略限制）。除此之外不得新增 `.ps1` 脚本文件，也不得把已改为 `.bat` 的构建链退回脚本形式。
 2. **极简纯净 Hook 原则 (Minimal Pure Hook Invariant)**：
    - 底层 Hook 模块**仅挂钩 `connect` 与 `WSAConnect`**，严禁挂钩 `closesocket`、`ioctlsocket`、`WSAEventSelect`、`WSAAsyncSelect` 或 `WSAIoctl`；
    - 不在内存中维护任何 Socket 上下文映射表（`g_SocketMap`），消除锁争用。所有发送接收统一基于超时 `select()`；连接一旦建立，后续数据流与过图关闭 100% 走系统原生代码。

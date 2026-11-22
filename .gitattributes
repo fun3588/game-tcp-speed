@@ -14,5 +14,13 @@
 *.cmd -text
 *.bat -text
 
+# 脚本形态约定（维护原则，别推翻）：
+#  - 构建/发布链一律用 .bat（build_all.bat、c/build.bat），不引入 .ps1。
+#    .bat 无运行时依赖，且不受执行策略/签名限制，双击即可用。
+#  - PowerShell 仅在"无法替代"的场合保留，目前只有 tools/*.cmd 里的 UAC
+#    自提权一行（Start-Process -Verb RunAs）。这类调用用 -Command 形式，
+#    不受 ExecutionPolicy 影响，可正常工作；禁止再新增 .ps1 脚本文件。
+#  - 编辑 .bat/.cmd 时保持 ASCII 或 GBK、CRLF、无 BOM、无 chcp。
+
 # 含明文节点凭据，禁止提交
 Sing-box/config.json -text
