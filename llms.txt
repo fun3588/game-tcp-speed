@@ -1,4 +1,4 @@
-# Game-TCP-Speed v3.1.2
+# Game-TCP-Speed v3.1.3
 
 > Game-TCP-Speed is an open-source, ultra-lightweight pure Win32 process-level TCP network game accelerator for Windows. It provides millisecond-level traffic tunneling without TUN/TAP virtual network adapters, WebView bloat, or system gateway routing conflicts.
 
@@ -12,11 +12,12 @@
 - Releases: Pre-built portable releases packaged under `bin/v3.1`.
 - Legacy Archived: Previous C# WPF GUI archived under `c#/GameTcpSpeed.Wpf`.
 
-## Key Technical Details in v3.1.2
+## Key Technical Details in v3.1.3
 
-- Ultra-Low Footprint: Only 3 ~ 5 MB RAM, single binary 174 KB, starts in < 0.01s. Zero WebView2 or .NET CLR runtime dependencies.
+- Ultra-Low Footprint: Only 3 ~ 5 MB RAM, single binary 309 KB (statically linked, zero external runtime DLLs), starts in < 0.01s. Zero WebView2 or .NET CLR runtime dependencies.
 - Zero TUN Adapter: Operates purely in user space. No virtual NIC or system routing table modifications.
 - Minimal Pure Hook Architecture: Exclusively hooks `connect` and `WSAConnect`. Completely eliminates auxiliary hooks (`closesocket`, `ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`), socket context tracking maps, and lock contention. Socket lifecycles flow 100% through native Windows drivers.
+- Unload-Time Crash Immunity: The injected DLL is pinned against premature `FreeLibrary` and a drain barrier quiesces in-flight `connect` calls before original bytes are restored, eliminating `ERROR #132` on live unhook. Drain duration is logged.
 - World Transfer Crash Elimination: Completely removed MinHook inline splicing on `mswsock!ConnectEx`. Eliminates Windows 11 RIP-relative instruction displacement faults (`ERROR #132 ACCESS_VIOLATION` in anonymous trampoline memory).
 - IPv6 Leak Defense: Intercepts `AF_INET6` connections with `WSAEAFNOSUPPORT`, forcing game engines to fall back to IPv4, preventing domestic ISP IPv6 leakage and multi-IP security bans.
 - Zero-Side-Effect Socket Probe: Ephemeral socket health check protects game original sockets against `WSAEINVAL (10022)` during fallback.

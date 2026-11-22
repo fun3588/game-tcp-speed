@@ -1,14 +1,14 @@
 <div align="center">
 
-# Game-TCP-Speed v3.1.2
+# Game-TCP-Speed v3.1.3
 
 ### Windows 进程级 TCP 游戏加速工具（无需 TUN 虚拟网卡 / 不改写系统网关）
-*(纯经典 Win32 API + GDI 双语版，单文件仅 174 KB，内存仅 3~5 MB，极速零依赖)*
+*(纯经典 Win32 API + GDI 双语版，单文件 309 KB 静态自包含零运行时依赖，内存仅 3~5 MB)*
 
-[![Release](https://img.shields.io/badge/Release-v3.1.2-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
+[![Release](https://img.shields.io/badge/Release-v3.1.3-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
 [![Language](https://img.shields.io/badge/Language-Pure%20C%2B%2B%20%7C%20Win32%20API-00599C?style=flat-square)](c/)
 [![UI](https://img.shields.io/badge/UI-Pure%20Win32%20%7C%20GDI%20(Bilingual)-brightgreen?style=flat-square)](c/gui/)
-[![Size](https://img.shields.io/badge/Size-174%20KB-success?style=flat-square)](bin/v3.1/)
+[![Size](https://img.shields.io/badge/Size-309%20KB-success?style=flat-square)](bin/v3.1/)
 [![RAM](https://img.shields.io/badge/RAM-3--5%20MB-success?style=flat-square)](README.md)
 [![Hook](https://img.shields.io/badge/Hook-MinHook%20x64%20(Minimal%20Connect)-orange?style=flat-square)](c/)
 [![Core](https://img.shields.io/badge/Core-Sing--box%20v1.14.2-E65C00?style=flat-square&logo=box)](Sing-box/)
@@ -16,7 +16,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 [工作原理](#-工作原理与架构) •
-[v3.1.2 新特性](#-v312-重大升级) •
+[v3.1.3 新特性](#-v313-重大升级) •
 [快速开始](#-快速开始) •
 [技术要点](#-技术要点与排查记录) •
 [目录结构](#-项目目录结构) •
@@ -42,33 +42,37 @@
 
 ---
 
-### 🌟 v3.1.2 重大升级 (极简纯净Hook版 / 仅挂钩connect / 零触碰Socket生命周期)
+### 🌟 v3.1.3 重大升级 (常驻防崩版 / 模块钉住 + Drain 屏障)
 
-在经历深度底层剖析与多轮实战后，**v3.1.2 采用极简纯净架构重构底层 Hook 逻辑**：
+在 v3.1.2 极简纯净 Hook 架构之上，**v3.1.3 补齐了卸载期的最后一处崩溃面**，至此注入—运行—卸载全生命周期无崩溃：
 
-1. **⚡ 极简纯净 Hook 架构（Minimal Pure Hook）**：
+1. **🛡️ 卸载期零崩溃（Module Pinning + Drain Barrier，v3.1.3 新增）**：
+   - 注入完成后对 `hook_proxy.dll` 执行**模块钉住**（固定模块句柄并持有引用），杜绝游戏侧或第三方工具提前 `FreeLibrary` 导致的代码页失效；
+   - 卸载前插入 **Drain 屏障**：先置位停止标志，再排空所有仍在飞行中的 `connect` 调用，最后才还原原始字节，避免还原瞬间仍有线程跳入跳板代码触发 `ERROR #132 ACCESS_VIOLATION`；
+   - 卸载日志输出 Drain 实际耗时（单位 ms），异常线程滞留时可据此定位。
+2. **⚡ 极简纯净 Hook 架构（Minimal Pure Hook，v3.1.2）**：
    - 彻底剥离 `closesocket`、`ioctlsocket`、`WSAEventSelect` 与 `WSAAsyncSelect` 辅助钩子，彻底删除内部 `g_SocketMap` 上下文与跨线程锁争用；
    - **整个 DLL 仅挂钩 `connect` 与 `WSAConnect`**，在连接建立的最初一瞬间打通 Socks5 专线；
    - 连接完成后，后续所有数据收发、过图销毁、句柄关闭与事件调度 **100% 走 Windows 原生系统代码**，Hook 模块在游戏运行时处于完全静止状态，实现绝对的零干扰！
-2. **💥 彻底根除过图崩溃（ERROR #132 ACCESS_VIOLATION 根治）**：
+3. **💥 彻底根除过图崩溃（ERROR #132 ACCESS_VIOLATION 根治，v3.1.1 ~ v3.1.2）**：
    - 彻底废除使用 MinHook 对 `mswsock!ConnectEx` 的汇编机器码行内篡改，消除了 Win11 下因 **RIP 相对寻址指令搬迁失真** 导致的跳板内存不可读异常（`0x000001f843ea7ef5`）；
    - 所有完成端口扩展函数查询 100% 直通 Windows 原生网络协议栈，进出副本地图传送门零崩溃。
-3. **🛡️ IPv6 强制回退防封保护**：
+4. **🛡️ IPv6 强制回退防封保护**：
    - 国内宽带已普及原生 IPv6，魔兽世界客户端若解析到 AAAA 记录会默认发起 IPv6 连接并绕过代理走原生直连；
    - 导致严重后果：“登录认证走 IPv4 专线，世界服走国内原生 IPv6 直连”，私服检测到 IP 不一致判定多 IP 异常并强制断开（`WOW51900319`）；
    - **v3.1.1 引入内核级 `AF_INET6` 拒绝**，主动返回 `WSAEAFNOSUPPORT`，迫使魔兽世界客户端网络库遵循标准平滑回退到 IPv4 专线，彻底消除漏包与双栈 IP 漂移。
-4. **🔒 前置就绪锁 (Pre-flight Readiness Lock)**：
+5. **🔒 前置就绪锁 (Pre-flight Readiness Lock)**：
    - 彻底解决多开瞬间游戏进程发包抢跑问题；
    - 启动器在 Sing-box 核心启动后，通过高频 TCP 探针握手验证，**确认本地端口处于真实监听状态后才开放注入**；
    - 将多开自动监控轮询从 400ms 压至 200ms，确保多开登录器瞬间拉起多个账号时，所有进程在发出首个网络包前均已被完整注入接管。
-5. **🎮 私服端口全兼容与精准 CDN 放行**：
+6. **🎮 私服端口全兼容与精准 CDN 放行**：
    - 解除原先一刀切屏蔽 `8080` 的限制，全面支持采用 8080 作为世界服/认证网关的各版本魔兽私服；
    - 仅针对真正导致贴图解码崩溃的 CDN 资源（`146.59.238.42:80` 及 HTTP 80）实施精准直连放行，兼顾防 `funcs.cpp Out of Memory` 崩溃与私服各端口全面加速。
-6. **🔄 真正的无损平滑降级直连**：
+7. **🔄 真正的无损平滑降级直连**：
    - 消除连接本地代理失败后对同一 socket 二次 connect 引发的 Winsock `WSAEINVAL (10022)` 规范崩溃；
    - 在发起连接前对本地代理核心执行存活探针，若核心未运行，套接字在首次尝试即直接走原生直连，符合 Winsock 状态机标准。
-7. **纯经典 Win32 API + GDI 双语客户端**：
-   - 客户端体积仅 **174 KB**，运行时内存仅 **3 MB ~ 5 MB**，启动耗时 `< 0.01 秒`，零依赖、支持中英双语瞬间热切换；
+8. **纯经典 Win32 API + GDI 双语客户端**：
+   - 客户端体积 **309 KB**（静态链接 libstdc++/libgcc/winpthread，零外部运行时依赖），运行时内存仅 **3 MB ~ 5 MB**，启动耗时 `< 0.01 秒`，支持中英双语瞬间热切换；
    - 支持已运行游戏免重启接管与一键卸载恢复直连。
    - 新增【💾 保存订阅配置】按钮，自动将订阅及端口配置持久化保存至 `subscription.ini`，下次启动自动恢复；
    - 运行时自动检测端口冲突并智能分配高位可用端口。
@@ -79,12 +83,12 @@
 
 ```mermaid
 flowchart TD
-    subgraph UI_Layer["纯经典 Win32 极速客户端 (内存 3~5 MB / 单文件 174 KB)"]
+    subgraph UI_Layer["纯经典 Win32 极速客户端 (内存 3~5 MB / 单文件 309 KB)"]
         Win32App["GameTcpSpeed.exe\n[纯经典 Win32 API + GDI / 中英双语热切换 / 零外部依赖]"]
     end
 
     subgraph Hook_Layer["本地专线代理核心 (纯 C++ / 用户态)"]
-        HookDLL["hook_proxy.dll\n(MinHook 拦截 connect + WSAConnect + ConnectEx)"]
+        HookDLL["hook_proxy.dll\n(MinHook 拦截 connect + WSAConnect)"]
         SingBox["Sing-box 核心\n(动态随机端口监听)"]
         Config["proxy_config.ini / subscription.ini\n(端口与订阅持久化)"]
     end
@@ -100,8 +104,8 @@ flowchart TD
 
     Win32App -->|1. 动态端口调度 & 写入 INI| SingBox
     Win32App -->|2. 远程安全注入 / 实时免重启接管| HookDLL
-    HookDLL -.->|行内挂钩 / 异步 ConnectEx| GameRunning
-    GameRunning -->|TCP Connect / ConnectEx| HookDLL
+    HookDLL -.->|行内挂钩 / connect + WSAConnect| GameRunning
+    GameRunning -->|TCP connect / WSAConnect| HookDLL
     HookDLL -->|Socks5 握手重定向| SingBox
     SingBox -->|AnyTLS 隧道| AnyTLS
     AnyTLS -->|交付数据| RemoteServer
@@ -111,7 +115,7 @@ flowchart TD
 
 ### 快速开始
 
-#### 运行 v3.1.1 客户端
+#### 运行 v3.1.3 客户端
 双击运行根目录下的：
 ```text
 启动加速器.bat
@@ -120,12 +124,22 @@ flowchart TD
 ```text
 bin\v3.1\GameTcpSpeed.exe
 ```
-* **特点**：体积仅 174 KB，内存仅 3~5 MB，秒开，原生中英文一键切换，支持游戏免重启接管与一键卸载恢复直连。
+* **特点**：单文件 309 KB、静态自包含零运行时依赖，内存仅 3~5 MB，秒开，原生中英文一键切换，支持游戏免重启接管与一键卸载恢复直连。
 
 #### 游戏注入与加速流程：
 1. **若游戏尚未启动**：点击【🚀 开启自动监控注入】，随后启动游戏登录器，程序将在毫秒级完成自动注入；
-2. **若游戏已经在运行中**：无需退出游戏，直接点击【⚡ 立即接管已运行游戏】，程序将通过 `ConnectEx` 增强钩子平滑接管后续所有世界服网络连接；
+2. **若游戏已经在运行中**：无需退出游戏，直接点击【⚡ 立即接管已运行游戏】，程序将通过 `connect` / `WSAConnect` 行内钩子平滑接管后续所有世界服网络连接；
 3. **若需恢复直连**：点击【🛑 一键卸载 / 恢复直连】，程序将从游戏中干净弹出 Hook 模块，即刻恢复直连。
+
+#### 从源码构建
+本仓库不依赖 PowerShell，构建链为纯批处理（`.bat`）。双击根目录下的：
+```text
+build_all.bat
+```
+脚本将先调用 `c\build.bat` 编译 C 模块，再自动打包至 `bin\v3.1`。
+
+* **前置依赖**：`cmake`、`ninja`、`g++`（MinGW-w64 x64 / UCRT）需已加入 PATH；
+* 仅编译底层模块时可单独运行 `c\build.bat`。
 
 ---
 
@@ -139,12 +153,15 @@ bin\v3.1\GameTcpSpeed.exe
 2. **彻底解决多开在选人界面卡顿断开（`WOW51900319`）**：
    - **痛点**：MSDN 明确规定二次调用 `WSAEventSelect` 会彻底清空套接字内部网络事件记录。旧版 Hook 在握手后二次调用该函数，**抹除了内核的 `FD_WRITE` 可写事件**，导致客户端在选人界面误判不可写而迟迟不发角色登录包，30 秒后世界服超时强制切断（报 `WOW51900319`）；
    - **方案**：重构为**基于超时 `select` 驱动的无损握手模式**，完全不改变套接字模式，绝对不二次触碰 `WSAEventSelect`，100% 保留内核事件记录，并开启 `TCP_NODELAY = 1` 消除心跳积压，实现任意多开秒进世界。
-3. **修复 ConnectEx 异步 IOCP 黑洞与 WSAEISCONN 脏套接字**：
+3. **修复 ConnectEx 异步 IOCP 黑洞与 WSAEISCONN 脏套接字**（历史项：v3.1.0 及更早；v3.1.1 起已彻底放弃对 `ConnectEx` 的任何钩子，改为原生直通）：
    - 对异步 IOCP `ConnectEx` 放行原生直连，防止异步完成端口因未完成 Socks5 握手而进入协议黑洞；
    - 握手失败分支主动关闭套接字并置位 `WSAECONNREFUSED`，严禁产生脏套接字二次连接。
 4. **长生命周期内存治理与 PID 复用防漏注入**：
-   - 挂钩 `closesocket`，在套接字释放时立即清理 `SocketContext`，杜绝长效多开挂机内存泄露；
-   - 自动监控轮询中增加已退出进程死 PID 自动清除，完美应对游戏重启与 PID 复用。
+   - 自动监控轮询中增加已退出进程死 PID 自动清除，完美应对游戏重启与 PID 复用；
+   - 早期版本曾通过挂钩 `closesocket` 清理 `SocketContext` 防止多开挂机内存泄漏，**v3.1.2 起该钩子与上下文表已整体移除**，由「零上下文 + 仅钩 connect」架构从根上消除泄漏面。
+5. **彻底根除卸载期崩溃（`ERROR #132` on unload，v3.1.3）**：
+   - **痛点**：Hook 模块在游戏运行期被卸载时，若仍有线程停留在跳板代码页，或模块句柄被提前释放，还原原始字节的瞬间即触发非法指令/非法读取，游戏以 `ERROR #132` 直接退出；
+   - **方案**：注入后对 `hook_proxy.dll` 执行**模块钉住**防止提前 `FreeLibrary`，卸载前以 **Drain 屏障** 排空所有飞行中的 `connect` 调用，确认无活动线程后再还原字节，并输出 Drain 耗时日志供现场诊断。
 
 ---
 
@@ -153,7 +170,7 @@ bin\v3.1\GameTcpSpeed.exe
 ```text
 game-tcp-speed/
 ├── bin/v3.1/                         # v3.1 完整自闭环打包发布目录
-│   ├── GameTcpSpeed.exe              # 纯经典 Win32 API + GDI 主程序 (174 KB, 内存 3~5MB)
+│   ├── GameTcpSpeed.exe              # 纯经典 Win32 API + GDI 主程序 (309 KB, 内存 3~5MB)
 │   ├── hook_proxy.dll                # 底层 Winsock 拦截模块 (支持 IPv6回退、就绪锁与热卸载)
 │   └── Sing-box/                     # 专线代理核心及配置
 │
@@ -161,7 +178,7 @@ game-tcp-speed/
 │   ├── gui/launcher_gui.cpp          # Win32 原生双语客户端源码
 │   ├── dll/hook_proxy.cpp            # MinHook 行内拦截核心源码
 │   ├── minhook/                      # MinHook 依赖
-│   ├── build.ps1                     # C++ 一键编译脚本
+│   ├── build.bat                     # C++ 一键编译脚本 (CMake + Ninja)
 │   └── CMakeLists.txt                # CMake 构建配置文件
 │
 ├── c#/                               # 已封存归档的 C# WPF 历史方案
@@ -172,7 +189,7 @@ game-tcp-speed/
 │   ├── 魔兽世界11.2.5与多开底层网络排查复盘.md # 底层网络死穴与多开排查技术复盘
 │   ├── 加速器效果验证.md             # 专线加速效果实测记录
 │   └── 独立sing-box使用说明.md        # 独立内核运行指导
-├── build_all.ps1                     # 一键全栈构建打包脚本 (编译并输出至 bin/v3.1)
+├── build_all.bat                     # 一键全栈构建打包脚本 (编译并输出至 bin/v3.1)
 ├── README.md                         # 本文档
 └── setupAnytls.md                    # AnyTLS 服务端部署参考
 ```
@@ -189,11 +206,12 @@ Conventional accelerators rely on TUN/TAP virtual network adapters to hijack def
 
 **Game-TCP-Speed** uses **user-mode Winsock Inline Hooking** to intercept and accelerate only designated game executables (such as `WoW 11.2.5 - Firestorm.exe`) without creating virtual network adapters or altering system routing tables. Combined with AnyTLS + Reality streaming, it provides seamless latency optimization.
 
-### Key Features in v3.1.1 (Pure Win32 API + GDI Bilingual Edition)
+### Key Features in v3.1.3 (Pure Win32 API + GDI Bilingual Edition)
 
-- **Pure Win32 Zero-Overhead Architecture**: Strictly no WebView2, Electron, or heavy .NET CLR dependencies. Built purely with native **Win32 API + GDI**. Executable size is only **174 KB**, consumes merely **3 ~ 5 MB RAM**, and starts instantly in `< 0.01s`.
+- **Unload-Time Crash Immunity (v3.1.3)**: The injected module is pinned to prevent premature `FreeLibrary`, and a drain barrier quiesces every in-flight `connect` call before original bytes are restored, eliminating `ERROR #132` crashes on live unhook. Drain duration is written to the log for field diagnosis.
+- **Minimal Pure Hook Architecture (v3.1.2)**: Hooks **only** `connect` and `WSAConnect`. Auxiliary hooks (`closesocket`, `ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`), socket context maps and cross-thread locks are removed entirely — socket lifecycles flow 100% through native Windows code.
+- **Pure Win32 Zero-Overhead Architecture**: Strictly no WebView2, Electron, or heavy .NET CLR dependencies. Built purely with native **Win32 API + GDI**. Executable size is **309 KB** (statically linked, zero runtime dependencies), consumes merely **3 ~ 5 MB RAM**, and starts instantly in `< 0.01s`.
 - **World Transfer Crash Elimination**: Removed MinHook assembly trampolining on `mswsock!ConnectEx`. Eliminates Windows 11 RIP-relative relocation memory read faults (`0x000001f843ea7ef5`), ensuring 100% crash immunity during rapid dungeon portal zone transitions.
-- **Socket Event Lifecycle Clean-up**: Correctly clears internal handle maps when sockets reset event monitoring, preventing stale handle signaling upon socket recycling.
 - **IPv6 Fallback Defense**: Rejects `AF_INET6` connections to force client fallbacks to IPv4 proxy tunnel, eliminating dual-stack packet leakage and multi-IP disconnects (`WOW51900319`).
 - **Pre-flight Readiness Lock**: Launcher verifies proxy port listening state before triggering injection, preventing race-condition direct leaks during multi-boxing.
 - **Private Server Full Compatibility**: Unblocks port 8080 and other private server custom world ports while keeping CDN texture assets (port 80) direct to avoid `funcs.cpp Out of Memory` crashes.
@@ -205,4 +223,5 @@ Conventional accelerators rely on TUN/TAP virtual network adapters to hijack def
 
 ### Build & Run
 
+- Build: run `build_all.bat` (or `c\build.bat` for the C module alone). Requires `cmake`, `ninja` and `g++` (MinGW-w64 x64 / UCRT) on PATH. No PowerShell scripts are used.
 - Launch: Double-click `启动加速器.bat` or `bin\v3.1\GameTcpSpeed.exe`
