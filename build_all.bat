@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  GameTcpSpeed v3.1.3 - Build & Package Script (Pure Win32 GDI)
+rem  GameTcpSpeed v3.1.5 - Build & Package Script (Pure Win32 GDI)
 rem  1) Builds the C module via c\build.bat
 rem  2) Packages artifacts into bin\v3.1 (self-contained)
 rem ============================================================
@@ -9,7 +9,7 @@ set "ROOT=%~dp0"
 set "DIST=%ROOT%bin\v3.1"
 
 echo ============================================================
-echo   GameTcpSpeed v3.1.3 - Build ^& Package Script (Pure Win32 GDI)
+echo   GameTcpSpeed v3.1.5 - Build ^& Package Script (Pure Win32 GDI)
 echo ============================================================
 
 echo.
@@ -42,9 +42,9 @@ if exist "%DIST%\launcher_gui.exe" del /Q "%DIST%\launcher_gui.exe"
 
 echo.
 echo ============================================================
-echo   [OK] v3.1.3 Pure Win32 Build ^& Packaging Succeeded!
+echo   [OK] v3.1.5 Pure Win32 Build ^& Packaging Succeeded!
 echo   Output Directory: %DIST%
-echo   - GameTcpSpeed.exe (Pure Win32 API + GDI, ~309KB, 3~5MB RAM, Bilingual)
+echo   - GameTcpSpeed.exe (Pure Win32 API + GDI, ~336KB, 3~5MB RAM, Bilingual)
 echo   - hook_proxy.dll   (Minimal pure hook + module pinning + drain barrier)
 echo   - Sing-box/        (Proxy core ^& config)
 echo ============================================================

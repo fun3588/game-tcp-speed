@@ -13,7 +13,6 @@ __pycache__/
 build/
 c/build/
 bin/
-archive/
 out/
 .vs/
 .vscode/

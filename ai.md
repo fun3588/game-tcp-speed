@@ -1,4 +1,4 @@
-# AI 协作与维护指南 v3.1.3 (AI Collaboration & Maintenance Guide v3.1.3)
+# AI 协作与维护指南 v3.1.5 (AI Collaboration & Maintenance Guide v3.1.4)
 
 [中文说明](#-中文说明) • [English Documentation](#-english-documentation)
 
@@ -8,12 +8,12 @@
 
 > 本文档是给 AI 助手与开发者的交接规范文档，进行代码维护与二次开发时请严格遵循以下准则。
 
-### 核心约束与架构规范 (v3.1.3)
+### 核心约束与架构规范 (v3.1.5)
 
 1. **纯经典 Win32 API + GDI 架构准则**：
    - 官方唯一客户端全栈采用纯 C/C++ 编译，前端为 `c/gui/launcher_gui.cpp`（纯原生 Win32 API + GDI），底层为 `c/dll/hook_proxy.cpp`；
    - **严禁引入 WebView2、Electron、WPF 或重型第三方渲染库**，确保可执行文件单文件体积 ≤ 350 KB（静态链接 libstdc++/libgcc/winpthread 并链接期 `-s` 剥离符号后的体积上限），运行时内存常驻在 **3 MB ~ 5 MB**，启动即开；
-   - 原 C# WPF 方案已封存归档于 `c#/GameTcpSpeed.Wpf` 目录作为历史参考，日常构建与发布全部基于 `bin/v3.1` 与 `build_all.bat`（构建链只用 `.bat`，避免执行策略与签名问题）；
+   - 原 C# WPF 方案已于 v3.1.4 彻底移除（含历史归档），仓库内**不再保留任何 C#/WPF 代码**；日常构建与发布全部基于 `bin/v3.1` 与 `build_all.bat`（构建链只用 `.bat`，避免执行策略与签名问题）；
    - **PowerShell 只在无法替代处保留**：当前仅 `tools/*.cmd` 的 UAC 自提权一行使用 `-Command` 形式（不受执行策略限制）。除此之外不得新增 `.ps1` 脚本文件，也不得把已改为 `.bat` 的构建链退回脚本形式。
 2. **极简纯净 Hook 原则 (Minimal Pure Hook Invariant)**：
    - 底层 Hook 模块**仅挂钩 `connect` 与 `WSAConnect`**，严禁挂钩 `closesocket`、`ioctlsocket`、`WSAEventSelect`、`WSAAsyncSelect` 或 `WSAIoctl`；
@@ -46,21 +46,36 @@
     - 底层拦截模块在本地代理未运行或 `Proxy.Enabled=0` 时必须自动平滑直连原始目标地址，杜绝因核心停止造成游戏断网；
     - 必须提供远程 `FreeLibrary` 卸载与界面一键卸载功能，确保加速器关闭或卸载后游戏 100% 恢复原生网络。
 13. **版本号单一来源规范 (Version Sync Invariant)**：
-    - 版本号共存在于 4 处，升级时必须同步递增：`c/app.rc` 的 `FILEVERSION`/`PRODUCTVERSION` 与 `FileVersion` 字符串、`c/gui/launcher_gui.cpp` 的窗口标题/关于框/初始化日志、`c/dll/hook_proxy.cpp` 的 `GameTcpSpeed_GetVersion()` 返回值、以及 `README.md` / `ai.md` / `llms.txt` / `c/README.md` 的文档标识；
-    - 严禁出现「代码升版本、外壳标识未升」的错配（v3.1.3 曾出现 DLL 报 3.1.3 而 exe 属性仍为 3.1.2 的问题）。
+    - 版本号共存在于下列各处，升级时必须**一次性全部同步**，缺一即为错配：
+      - 代码/资源：`c/app.rc` 的 `FILEVERSION`/`PRODUCTVERSION` 与 `FileVersion` 字符串、`c/CMakeLists.txt`、`c/gui/launcher_gui.cpp` 的窗口标题/关于框/初始化日志、`c/dll/hook_proxy.cpp` 的 `GameTcpSpeed_GetVersion()` 返回值；
+      - 构建脚本：`c/build.bat` 与 `build_all.bat` 的注释头、标题回显与成功横幅（**v3.1.4 曾漏改 `build_all.bat`，导致编译出 3.1.4 却打印 "v3.1.3 Packaging Succeeded"**）；
+      - 文档：`README.md` / `ai.md` / `llms.txt` / `c/README.md` 的标题、徽章与「Key Features in vX.Y.Z」小节；
+    - 严禁出现「代码升版本、外壳标识未升」的错配（v3.1.3 曾出现 DLL 报 3.1.3 而 exe 属性仍为 3.1.2 的问题）；
+    - 校验方法：构建后对产物做字节级核对，`GameTcpSpeed.exe` 中不得再出现旧版本号（宽字符 UTF-16LE 形式）。
+14. **目标进程匹配规范 (Wildcard Target Invariant，v3.1.4)**：
+    - 游戏主程序名随版本变化（`WoW 11.2.5 - Firestorm.exe` → `WoW 12.0.7 - Firestorm.exe`），匹配**必须走 `WildcardMatchI()` 通配符比对**，严禁退回 `_wcsicmp` 全名精确比对；
+    - 默认目标固定为 `WoW*Firestorm*.exe`：既能跨版本命中，又因 `Launcher`/`Agent` 无 `WoW` 前缀而不会误注入登录器或更新器；
+    - 注入（`InjectMatchingProcesses`）与卸载（`EjectMatchingProcesses`）必须共用同一匹配函数，保证行为对称；
+    - 匹配数为 0 时日志必须回显当前表达式并提示可用 `*`，禁止只输出无信息量的"未检测到进程"。
+
+15. **手动映射与 APC 初始化规范 (Manual-Map Injection Invariant，v3.1.5)**：
+    - 受保护宿主（WoW 12.0.7 的 `Wow_loader.dll`）有两层拦截：未签名模块 `LoadLibrary` 被拒；起始地址不在已加载模块内的远线程被静默吞掉。注入必须「手动映射 + APC 兜底」双路径，并用 `ctx->done` 终态标志确认代码确实执行过；
+    - 手动映射必须自己调用 PE 入口点（否则 CRT 未初始化，宿主进程以 `0xC0000094` 等陷阱崩溃），且**禁止保存注入方传入的远端指针**——注入方返回后会释放那块内存，必须拷贝进本模块静态缓冲区（钩子每秒热重载配置会再次解引用）；
+    - 多个 APC 并发进入 `_CRT_INIT` 会打死宿主进程，初始化必须原子抢占只允许一个线程执行；
+    - vendored MinHook 必须以 `MINHOOK_NO_FREEZE` 编译：受保护进程里逐个 `SuspendThread` 全部线程会让注入线程挂死。
 
 ---
 
 ## 🇺🇸 English Documentation
 
-> This document serves as the maintenance handover guide for AI assistants and contributors for v3.1.3.
+> This document serves as the maintenance handover guide for AI assistants and contributors for v3.1.5.
 
-### Core Guidelines & Architectural Invariants (v3.1.3)
+### Core Guidelines & Architectural Invariants (v3.1.5)
 
 1. **Pure Win32 API + GDI Ultra-Lightweight Standard**:
    - The primary client is built purely with native Win32 API + GDI (`c/gui/launcher_gui.cpp`) and MinHook (`c/dll/hook_proxy.cpp`).
    - **Strictly No WebView2, Electron, or Heavy CLR Runtimes**. Memory footprint must remain within **3 ~ 5 MB RAM**, single executable ≤ 350 KB (static libstdc++/libgcc/winpthread, link-time `-s` stripped), instant launch.
-   - Legacy C# WPF project is archived under `c#/GameTcpSpeed.Wpf`. Releases are packaged under `bin/v3.1`.
+   - The legacy C# WPF project has been fully removed in v3.1.4 (archives included); no C#/WPF code remains in the repository. Releases are packaged under `bin/v3.1`.
 2. **Minimal Pure Hook Invariant**:
    - The hook DLL may hook **only** `connect` and `WSAConnect`. Never re-introduce hooks on `closesocket`, `ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect` or `WSAIoctl`, and never maintain a socket context map (`g_SocketMap`).
 3. **Strictly No TUN/TAP Virtual Adapters**:
@@ -89,5 +104,17 @@
     - The hook layer must degrade gracefully to direct connections if Sing-box is offline.
     - Remote `FreeLibrary` unhooking must safely restore unmodified Winsock states.
 14. **Version Sync Invariant**:
-    - The version string lives in four places and must always be bumped together: `c/app.rc` (`FILEVERSION` / `PRODUCTVERSION` / `FileVersion` string), `c/gui/launcher_gui.cpp` (window title, about box, init log), `c/dll/hook_proxy.cpp` (`GameTcpSpeed_GetVersion()` return value), and the docs (`README.md`, `ai.md`, `llms.txt`, `c/README.md`).
-    - Never ship a build where the code version and the shell metadata disagree (v3.1.3 once reported 3.1.3 from the DLL while the exe properties still showed 3.1.2).
+    - The version string must be bumped everywhere at once: `c/app.rc` (`FILEVERSION` / `PRODUCTVERSION` / `FileVersion` string), `c/CMakeLists.txt`, `c/gui/launcher_gui.cpp` (window title, about box, init log), `c/dll/hook_proxy.cpp` (`GameTcpSpeed_GetVersion()`), the build scripts (`c/build.bat`, `build_all.bat` headers/banners), and the docs (`README.md`, `ai.md`, `llms.txt`, `c/README.md`).
+    - Never ship a build where the code version and the shell metadata disagree (v3.1.3 once reported 3.1.3 from the DLL while the exe properties still showed 3.1.2; v3.1.4 initially left `build_all.bat` printing a stale banner).
+    - Verify byte-wise after building: no stale version string may remain in `GameTcpSpeed.exe` (UTF-16LE).
+15. **Wildcard Target Invariant (v3.1.4)**:
+    - The game executable is renamed across patches (`WoW 11.2.5 - Firestorm.exe` → `WoW 12.0.7 - Firestorm.exe`). Matching must always go through the case-insensitive `WildcardMatchI()` helper; never fall back to exact `_wcsicmp`.
+    - The default target is `WoW*Firestorm*.exe`: it survives version renames while `FirestormLauncher.exe` / `FirestormAgent.exe` are never mis-injected (no `WoW` prefix).
+    - Injection and ejection must share the same matcher so both directions stay symmetric.
+    - On a zero-match result the log must echo the active pattern and mention `*` support.
+
+16. **Manual-Map Injection Invariant (v3.1.5)**:
+    - Protected hosts reject unsigned `LoadLibrary` and swallow remote threads starting outside loaded modules. Injection must be manual-mapping + APC fallback, verified via the `ctx->done` terminal flag.
+    - The mapper must call the PE entry point itself (CRT init) and must never keep the caller-supplied remote pointer - copy the DLL path into a static buffer (config hot-reload re-reads it every second).
+    - Concurrent APCs entering `_CRT_INIT` kill the host; init must be claimed atomically by exactly one thread.
+    - Vendored MinHook must build with `MINHOOK_NO_FREEZE`; per-thread `SuspendThread` dead-locks inside protected processes.

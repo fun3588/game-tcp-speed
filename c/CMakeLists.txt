@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(GameTcpSpeed VERSION 3.1.3 LANGUAGES C CXX RC)
+project(GameTcpSpeed VERSION 3.1.5 LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_C_STANDARD 99)
@@ -37,15 +37,19 @@ add_library(hook_proxy SHARED
 )
 set_target_properties(hook_proxy PROPERTIES PREFIX "")
 target_link_libraries(hook_proxy PRIVATE ws2_32)
+# 关闭 MinHook 的「冻结全部线程」：受保护宿主进程里逐个 SuspendThread 会让注入线程挂死。
+# 详见 minhook/src/hook.c 中 MINHOOK_NO_FREEZE 处的说明。
+target_compile_definitions(hook_proxy PRIVATE MINHOOK_NO_FREEZE)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # -static：静态链接 libstdc++/libgcc/winpthread，产物零外部运行时依赖，可直接注入游戏进程
     # -s    ：链接期剥离符号表（811 KB -> 316 KB）；调试崩溃时去掉 -s 重新构建以保留符号
     target_link_options(hook_proxy PRIVATE -static -static-libgcc -static-libstdc++ -s)
 endif()
 
-# 3. 编译 v3.1.3 纯经典 Win32 API + GDI 旗舰图形客户端 (GameTcpSpeed.exe, 带应用图标)
+# 3. 编译 v3.1.5 纯经典 Win32 API + GDI 旗舰图形客户端 (GameTcpSpeed.exe, 带应用图标)
 add_executable(GameTcpSpeed WIN32
     gui/launcher_gui.cpp
+    gui/manual_map.cpp
     app.rc
 )
 target_link_libraries(GameTcpSpeed PRIVATE 

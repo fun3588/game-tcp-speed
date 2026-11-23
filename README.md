@@ -1,14 +1,14 @@
 <div align="center">
 
-# Game-TCP-Speed v3.1.3
+# Game-TCP-Speed v3.1.5
 
 ### Windows 进程级 TCP 游戏加速工具（无需 TUN 虚拟网卡 / 不改写系统网关）
-*(纯经典 Win32 API + GDI 双语版，单文件 309 KB 静态自包含零运行时依赖，内存仅 3~5 MB)*
+*(纯经典 Win32 API + GDI 双语版，单文件 336 KB 静态自包含零运行时依赖，内存仅 3~5 MB)*
 
-[![Release](https://img.shields.io/badge/Release-v3.1.3-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
+[![Release](https://img.shields.io/badge/Release-v3.1.5-blue?style=flat-square)](https://github.com/fun3588/game-tcp-speed/releases)
 [![Language](https://img.shields.io/badge/Language-Pure%20C%2B%2B%20%7C%20Win32%20API-00599C?style=flat-square)](c/)
 [![UI](https://img.shields.io/badge/UI-Pure%20Win32%20%7C%20GDI%20(Bilingual)-brightgreen?style=flat-square)](c/gui/)
-[![Size](https://img.shields.io/badge/Size-309%20KB-success?style=flat-square)](bin/v3.1/)
+[![Size](https://img.shields.io/badge/Size-336%20KB-success?style=flat-square)](bin/v3.1/)
 [![RAM](https://img.shields.io/badge/RAM-3--5%20MB-success?style=flat-square)](README.md)
 [![Hook](https://img.shields.io/badge/Hook-MinHook%20x64%20(Minimal%20Connect)-orange?style=flat-square)](c/)
 [![Core](https://img.shields.io/badge/Core-Sing--box%20v1.14.2-E65C00?style=flat-square&logo=box)](Sing-box/)
@@ -16,7 +16,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 [工作原理](#-工作原理与架构) •
-[v3.1.3 新特性](#-v313-重大升级) •
+[v3.1.5 更新](#-v315-更新-手动映射注入突破受保护客户端) •
 [快速开始](#-快速开始) •
 [技术要点](#-技术要点与排查记录) •
 [目录结构](#-项目目录结构) •
@@ -38,7 +38,46 @@
 - 某些底层驱动会在本地代答 TCP SYN，显示虚假低延迟，但实际游戏依然丢包；
 - 许多加速客户端依赖庞大的 Electron / WebView2 / WPF 框架，动辄吃掉数百兆系统内存。
 
-本项目采用**用户态 Winsock API 行内拦截（Inline Hook）**，只针对指定游戏进程（如 `WoW 11.2.5 - Firestorm.exe`）拦截并重定向 TCP 连接，不安装虚拟网卡，不修改系统路由表。配合 AnyTLS + Reality 纯净流式传输，在不影响系统其他网络应用的前提下改善游戏连接质量。
+本项目采用**用户态 Winsock API 行内拦截（Inline Hook）**，只针对指定游戏进程（默认 `WoW*Firestorm*.exe`，`*` 为通配符，自动跟随 11.2.5 / 12.0.7 等版本更名）拦截并重定向 TCP 连接，不安装虚拟网卡，不修改系统路由表。配合 AnyTLS + Reality 纯净流式传输，在不影响系统其他网络应用的前提下改善游戏连接质量。
+
+---
+
+### 🆕 v3.1.5 更新 (手动映射注入：突破受保护客户端)
+
+v3.1.4 的通配符已能正确选中新版客户端，但注入仍会失败。排查结论（全部实测）：WoW 12.0.7 的主 exe 只导入一个 39 MB 的商业保护壳 `Wow_loader.dll`，它在进程初始化阶段做了**两层拦截**——
+
+- 未签名模块经 `LoadLibrary` 加载一律返回 `NULL`（微软签名的系统 DLL 任意目录都能进，暴雪自家 DigiCert EV 签名的 DLL 也被拒）；
+- `CreateRemoteThread` 的起始地址若不在已加载模块内，线程会被静默吞掉（返回 0、代码一条不执行），而 `QueueUserAPC` 投递同一地址可以正常执行。
+
+1. **🧩 手动映射注入器（`c/gui/manual_map.cpp`，v3.1.5 新增）**：
+   - 自行完成 PE 加载：展开节表 → 应用 `DIR64` 基址重定位 → 解析导入并按「目标模块基址 + 导出 RVA」换算地址（规避两进程 ASLR 差异，`api-ms-win-crt-*` 转发到 `ucrtbase.dll`）→ 分配 TLS 槽位 → 一次性写入目标；
+   - 全程不经过 Windows 加载器，那层模块签名校验根本不会被触发。
+2. **🪝 APC 初始化（v3.1.5 新增）**：
+   - `GTS_Init` 优先走远线程（普通进程最干净）；远线程被吞时自动改用 APC 投递到宿主全部线程，并用上下文里的 `done` 标志确认代码真的执行了（避免把「被拦」误判成成功）；
+   - 多个 APC 同时到达时以原子抢占保证初始化只执行一次——并发跑 `_CRT_INIT` 会直接打死宿主进程（第一次实测就崩过）。
+3. **🧵 MinHook 关闭线程冻结（`MINHOOK_NO_FREEZE`，v3.1.5 新增）**：
+   - 受保护进程里 MinHook 原本的 `Freeze()`（逐个 `SuspendThread` 全部线程）会让注入线程挂死；本项目将 vendored MinHook 的冻结逻辑改为可关闭，直接改字节；
+   - 普通进程无此问题，但统一走新路径以保持行为一致。
+4. **🧷 静态 TLS 动态化（v3.1.5）**：
+   - `thread_local` 重入标记改为 `TlsAlloc` 动态槽位。手动映射的镜像没有加载器代为初始化静态 TLS，游戏线程一进 `HookedConnect` 就会踩空指针，这是原方案必崩的雷。
+5. **🧭 注入入口补跑 PE 入口点（v3.1.5）**：
+   - 手动映射必须自己调用镜像入口点，否则 CRT 与 C++ 静态初始化不执行（实测表现为 `0xC0000094` 整数除零崩溃）。
+
+---
+
+### 🆕 v3.1.4 更新 (目标进程通配符匹配)
+
+游戏本体随版本更新会改名（`WoW 11.2.5 - Firestorm.exe` → `WoW 12.0.7 - Firestorm.exe`），旧版用 `_wcsicmp` 做**全名精确比对**，游戏一升级加速器就静默失效、日志只提示"未检测到进程"。
+
+1. **🎯 目标进程支持 `*` 通配符（v3.1.4 新增）**：
+   - 在 `launcher_gui.cpp` 内实现大小写不敏感的 `WildcardMatchI()`，默认目标由 `WoW 11.2.5 - Firestorm.exe` 改为 **`WoW*Firestorm*.exe`**；
+   - 一次覆盖 `11.2.5 / 12.0.7 / 12.0.8 / 12.1.x` 乃至 `WoWClassic 1.15 - Firestorm.exe` 等后续版本，**游戏再改名也不必改代码重编译**；
+   - 自动注入（200ms 轮询）与一键卸载共用同一套匹配逻辑，注入/卸载行为始终对称。
+2. **🧭 未命中时日志可直接定位（v3.1.4 新增）**：
+   - 匹配数为 0 时日志会回显当前目标表达式并提示支持 `*`，不再只报一句"未检测到进程"；
+   - 例：`未检测到匹配 "WoW*Firestorm*.exe" 的进程；支持 * 通配符，例如 WoW*Firestorm*.exe`。
+3. **🔍 误伤防护（已验证）**：
+   - `FirestormLauncher.exe`、`FirestormAgent.exe` 不含 `WoW` 前缀，不会被通配符误注入；`WoW 12.0.7 - Firestorm.exe.bak` 这类后缀残留也不会命中。
 
 ---
 
@@ -72,7 +111,7 @@
    - 消除连接本地代理失败后对同一 socket 二次 connect 引发的 Winsock `WSAEINVAL (10022)` 规范崩溃；
    - 在发起连接前对本地代理核心执行存活探针，若核心未运行，套接字在首次尝试即直接走原生直连，符合 Winsock 状态机标准。
 8. **纯经典 Win32 API + GDI 双语客户端**：
-   - 客户端体积 **309 KB**（静态链接 libstdc++/libgcc/winpthread，零外部运行时依赖），运行时内存仅 **3 MB ~ 5 MB**，启动耗时 `< 0.01 秒`，支持中英双语瞬间热切换；
+   - 客户端体积 **336 KB**（静态链接 libstdc++/libgcc/winpthread，零外部运行时依赖），运行时内存仅 **3 MB ~ 5 MB**，启动耗时 `< 0.01 秒`，支持中英双语瞬间热切换；
    - 支持已运行游戏免重启接管与一键卸载恢复直连。
    - 新增【💾 保存订阅配置】按钮，自动将订阅及端口配置持久化保存至 `subscription.ini`，下次启动自动恢复；
    - 运行时自动检测端口冲突并智能分配高位可用端口。
@@ -83,7 +122,7 @@
 
 ```mermaid
 flowchart TD
-    subgraph UI_Layer["纯经典 Win32 极速客户端 (内存 3~5 MB / 单文件 309 KB)"]
+    subgraph UI_Layer["纯经典 Win32 极速客户端 (内存 3~5 MB / 单文件 336 KB)"]
         Win32App["GameTcpSpeed.exe\n[纯经典 Win32 API + GDI / 中英双语热切换 / 零外部依赖]"]
     end
 
@@ -94,7 +133,7 @@ flowchart TD
     end
 
     subgraph Game_Process["游戏主程序宿主"]
-        GameRunning["已在运行中的游戏 / 新启动游戏\n(WoW 11.2.5 - Firestorm.exe)"]
+        GameRunning["已在运行中的游戏 / 新启动游戏\n(WoW*Firestorm*.exe)"]
     end
 
     subgraph Uplink["海外专线隧道"]
@@ -115,7 +154,7 @@ flowchart TD
 
 ### 快速开始
 
-#### 运行 v3.1.3 客户端
+#### 运行 v3.1.4 客户端
 双击运行根目录下的：
 ```text
 启动加速器.bat
@@ -124,7 +163,7 @@ flowchart TD
 ```text
 bin\v3.1\GameTcpSpeed.exe
 ```
-* **特点**：单文件 309 KB、静态自包含零运行时依赖，内存仅 3~5 MB，秒开，原生中英文一键切换，支持游戏免重启接管与一键卸载恢复直连。
+* **特点**：单文件 336 KB、静态自包含零运行时依赖，内存仅 3~5 MB，秒开，原生中英文一键切换，支持游戏免重启接管与一键卸载恢复直连。
 
 #### 游戏注入与加速流程：
 1. **若游戏尚未启动**：点击【🚀 开启自动监控注入】，随后启动游戏登录器，程序将在毫秒级完成自动注入；
@@ -170,7 +209,7 @@ build_all.bat
 ```text
 game-tcp-speed/
 ├── bin/v3.1/                         # v3.1 完整自闭环打包发布目录
-│   ├── GameTcpSpeed.exe              # 纯经典 Win32 API + GDI 主程序 (309 KB, 内存 3~5MB)
+│   ├── GameTcpSpeed.exe              # 纯经典 Win32 API + GDI 主程序 (336 KB, 内存 3~5MB)
 │   ├── hook_proxy.dll                # 底层 Winsock 拦截模块 (支持 IPv6回退、就绪锁与热卸载)
 │   └── Sing-box/                     # 专线代理核心及配置
 │
@@ -180,9 +219,6 @@ game-tcp-speed/
 │   ├── minhook/                      # MinHook 依赖
 │   ├── build.bat                     # C++ 一键编译脚本 (CMake + Ninja)
 │   └── CMakeLists.txt                # CMake 构建配置文件
-│
-├── c#/                               # 已封存归档的 C# WPF 历史方案
-│   └── GameTcpSpeed.Wpf/             # v2.0 C# WPF 项目源码归档
 │
 ├── Sing-box/                         # 独立 Sing-box 核心环境与节点配置
 ├── docs/                             # 测评与使用说明文档
@@ -204,13 +240,18 @@ Cross-border online games frequently suffer from latency spikes, packet loss, or
 
 Conventional accelerators rely on TUN/TAP virtual network adapters to hijack default system routing, which often conflicts with local developer environments (Docker, WSL2, corporate VPNs). 
 
-**Game-TCP-Speed** uses **user-mode Winsock Inline Hooking** to intercept and accelerate only designated game executables (such as `WoW 11.2.5 - Firestorm.exe`) without creating virtual network adapters or altering system routing tables. Combined with AnyTLS + Reality streaming, it provides seamless latency optimization.
+**Game-TCP-Speed** uses **user-mode Winsock Inline Hooking** to intercept and accelerate only designated game executables (default target `WoW*Firestorm*.exe`, where `*` is a wildcard so version renames such as 11.2.5 → 12.0.7 need no rebuild) without creating virtual network adapters or altering system routing tables. Combined with AnyTLS + Reality streaming, it provides seamless latency optimization.
 
-### Key Features in v3.1.3 (Pure Win32 API + GDI Bilingual Edition)
+### Key Features in v3.1.5 (Pure Win32 API + GDI Bilingual Edition)
+
+- **Manual-Map Injection (v3.1.5)**: Modern protected clients (WoW 12.0.7's `Wow_loader.dll`) reject unsigned modules via `LoadLibrary` and silently swallow remote threads whose start address is outside any loaded module. v3.1.5 maps the DLL itself (relocations, imports incl. `api-ms-win-crt-*` -> `ucrtbase`, TLS index), initializes through `QueueUserAPC`, and calls the PE entry point so the CRT runs.
+- **No Thread Freezing (`MINHOOK_NO_FREEZE`, v3.1.5)**: vendored MinHook no longer suspends every thread when patching - the freeze dead-locked the injector inside protected processes.
+- **Wildcard Target Matching (v3.1.4)**: The target process now supports case-insensitive `*` wildcards via `WildcardMatchI()`. The default `WoW*Firestorm*.exe` keeps working across game client renames (11.2.5 / 12.0.7 / 12.0.8 / 12.1.x) without recompiling, while `FirestormLauncher.exe` / `FirestormAgent.exe` are never mis-targeted.
+- **Diagnosable Misses (v3.1.4)**: When zero processes match, the log echoes the active pattern and reminds the user that `*` is supported, instead of a bare "no running game found".
 
 - **Unload-Time Crash Immunity (v3.1.3)**: The injected module is pinned to prevent premature `FreeLibrary`, and a drain barrier quiesces every in-flight `connect` call before original bytes are restored, eliminating `ERROR #132` crashes on live unhook. Drain duration is written to the log for field diagnosis.
 - **Minimal Pure Hook Architecture (v3.1.2)**: Hooks **only** `connect` and `WSAConnect`. Auxiliary hooks (`closesocket`, `ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`), socket context maps and cross-thread locks are removed entirely — socket lifecycles flow 100% through native Windows code.
-- **Pure Win32 Zero-Overhead Architecture**: Strictly no WebView2, Electron, or heavy .NET CLR dependencies. Built purely with native **Win32 API + GDI**. Executable size is **309 KB** (statically linked, zero runtime dependencies), consumes merely **3 ~ 5 MB RAM**, and starts instantly in `< 0.01s`.
+- **Pure Win32 Zero-Overhead Architecture**: Strictly no WebView2, Electron, or heavy .NET CLR dependencies. Built purely with native **Win32 API + GDI**. Executable size is **336 KB** (statically linked, zero runtime dependencies), consumes merely **3 ~ 5 MB RAM**, and starts instantly in `< 0.01s`.
 - **World Transfer Crash Elimination**: Removed MinHook assembly trampolining on `mswsock!ConnectEx`. Eliminates Windows 11 RIP-relative relocation memory read faults (`0x000001f843ea7ef5`), ensuring 100% crash immunity during rapid dungeon portal zone transitions.
 - **IPv6 Fallback Defense**: Rejects `AF_INET6` connections to force client fallbacks to IPv4 proxy tunnel, eliminating dual-stack packet leakage and multi-IP disconnects (`WOW51900319`).
 - **Pre-flight Readiness Lock**: Launcher verifies proxy port listening state before triggering injection, preventing race-condition direct leaks during multi-boxing.

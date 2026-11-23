@@ -15,11 +15,13 @@
 #include <tlhelp32.h>
 #include <wininet.h>
 #include <psapi.h>
+#include "manual_map.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
 #include <set>
+#include <map>
 #include <string>
 
 #pragma comment(lib, "comctl32.lib")
@@ -146,6 +148,10 @@ static PROCESS_INFORMATION g_SbProcInfo = { 0 };
 static bool g_bAutoInjecting = false;
 static HANDLE g_hAutoInjectThread = NULL;
 static std::set<DWORD> g_InjectedPids;
+
+// 手动映射注入的进程记录：这类模块不在目标进程的模块表里，
+// FreeLibrary 也卸载不掉，卸载时只能远线程调镜像内的 GTS_Shutdown 拆钩子。
+static std::map<DWORD, ManualMapResult> g_ManualMapped;
 static bool g_bProbing = false;
 
 // 探针目标结构体 (真实物理连通与 RTT)
@@ -265,7 +271,7 @@ static void UpdateConfigPort(const wchar_t* cfgPath, unsigned short newPort) {
 static void InitProbeTargets() {
     g_ProbeTargets.clear();
     g_ProbeTargets.push_back({ L"Firestorm 战网认证登录网关 (1119)", L"Battle.net Logon Gateway (1119)", "141.95.207.63", 1119, L"待检测", -1.0, false });
-    g_ProbeTargets.push_back({ L"Firestorm 世界服务器 (TWW 8285)", L"EU World Realm Server (8285)", "141.95.207.63", 8285, L"待检测", -1.0, false });
+    g_ProbeTargets.push_back({ L"Firestorm 世界服务器 (8285)", L"EU World Realm Server (8285)", "141.95.207.63", 8285, L"待检测", -1.0, false });
     g_ProbeTargets.push_back({ L"Firestorm 备用认证节点 (1119)", L"Backup Auth Node (1119)", "51.75.148.169", 1119, L"待检测", -1.0, false });
     g_ProbeTargets.push_back({ L"Firestorm 官方 Web 门户 (443)", L"Official Web Portal (443)", "firestorm-servers.com", 443, L"待检测", -1.0, false });
     g_ProbeTargets.push_back({ L"当前 AnyTLS 专线节点 (104.252.30.68)", L"Current AnyTLS Node (104.252.30.68)", "104.252.30.68", 3589, L"待检测", -1.0, true });
@@ -435,7 +441,8 @@ static void ReloadNodeList() {
     if (!g_hComboNodes) return;
     SendMessageW(g_hComboNodes, CB_RESETCONTENT, 0, 0);
 
-    const wchar_t* nodeName = L(L"AnyTLS 极速专线 (104.252.30.68:443)", L"AnyTLS Premium Node (104.252.30.68:443)");
+    // 节点名与面板订阅保持一致: <host>.AnyTLS.安全 (规范: https://ai.drx.ac.cn/anytls_hy2)
+    const wchar_t* nodeName = L(L"104.252.30.68.AnyTLS.安全", L"104.252.30.68.AnyTLS.Secure");
     SendMessageW(g_hComboNodes, CB_ADDSTRING, 0, (LPARAM)nodeName);
     SendMessageW(g_hComboNodes, CB_SETCURSEL, 0, 0);
 }
@@ -494,10 +501,45 @@ static BOOL InjectDllByPid(DWORD pid) {
     CloseHandle(hProcess);
 
     if (hRemoteModule == 0) {
-        wchar_t errMsg[128];
+        // 现代受保护客户端（WoW 12.0.7 起）由 Wow_loader.dll 接管，只允许微软签名模块进入，
+        // 未签名 DLL 走 LoadLibrary 一律返回 NULL。改用手动映射：不经过加载器，碰不到该校验。
+        char dllPathAnsi[MAX_PATH] = {0};
+        WideCharToMultiByte(CP_ACP, 0, dllPath, -1, dllPathAnsi, MAX_PATH, NULL, NULL);
+
+        HANDLE hMap = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+                                  PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
+                                  FALSE, pid);
+        if (hMap) {
+            ManualMapResult mm;
+            BOOL mapped = ManualMapDll(hMap, dllPath, dllPathAnsi, &mm);
+            CloseHandle(hMap);
+
+            if (mapped) {
+                g_ManualMapped[pid] = mm;
+                g_InjectedPids.insert(pid);
+
+                wchar_t msg[256];
+                _snwprintf(msg, sizeof(msg)/sizeof(wchar_t),
+                           L(L"√ 目标拒绝加载未签名模块，已改用手动映射接管 (PID: %lu, 基址: 0x%llX)！",
+                             L"√ Module signature policy blocked LoadLibrary; injected via manual mapping (PID: %lu, base: 0x%llX)!"),
+                           pid, (unsigned long long)mm.imageBase);
+                AppendLog(msg);
+                return TRUE;
+            }
+
+            wchar_t msg[400];
+            _snwprintf(msg, sizeof(msg)/sizeof(wchar_t),
+                       L(L"✖ 注入 PID %lu 失败：LoadLibrary 被拒，手动映射也失败 (%S)",
+                         L"✖ Inject PID %lu failed: LoadLibrary rejected and manual mapping failed (%S)"),
+                       pid, mm.detail);
+            AppendLog(msg);
+            return FALSE;
+        }
+
+        wchar_t errMsg[160];
         _snwprintf(errMsg, sizeof(errMsg)/sizeof(wchar_t),
-                   L(L"✖ 注入 PID %lu 失败: 远程 LoadLibraryW 返回 NULL (目标可能正受保护或权限受限)",
-                     L"✖ Inject PID %lu failed: remote LoadLibrary returned NULL"), pid);
+                   L(L"✖ 注入 PID %lu 失败: 远程 LoadLibraryW 返回 NULL，且无法打开进程做手动映射",
+                     L"✖ Inject PID %lu failed: remote LoadLibrary returned NULL and manual mapping could not open the process"), pid);
         AppendLog(errMsg);
         return FALSE;
     }
@@ -513,6 +555,37 @@ static BOOL InjectDllByPid(DWORD pid) {
 
 static BOOL EjectDllByPid(DWORD pid) {
     if (pid == 0) return FALSE;
+
+    // 手动映射注入的镜像不在模块表里，Module32 永远找不到，
+    // 必须走远线程调用镜像内的 GTS_Shutdown 拆钩子（镜像内存由宿主进程退出时回收）。
+    std::map<DWORD, ManualMapResult>::iterator it = g_ManualMapped.find(pid);
+    if (it != g_ManualMapped.end()) {
+        HANDLE hMap = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+                                  PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
+                                  FALSE, pid);
+        if (!hMap) {
+            wchar_t err[160];
+            _snwprintf(err, sizeof(err)/sizeof(wchar_t),
+                       L(L"✖ 卸载失败：无法打开 PID %lu（进程可能已退出）。",
+                         L"✖ Unload failed: cannot open PID %lu."), pid);
+            AppendLog(err);
+            return FALSE;
+        }
+
+        DWORD exitCode = 0;
+        BOOL ok = CallRemoteRva(hMap, it->second.imageBase, it->second.shutdownRva, 0, &exitCode);
+        CloseHandle(hMap);
+
+        g_ManualMapped.erase(it);
+        g_InjectedPids.erase(pid);
+
+        wchar_t msg[200];
+        _snwprintf(msg, sizeof(msg)/sizeof(wchar_t),
+                   L(L"√ 已拆除手动映射注入的钩子（PID: %lu，镜像内存保留至进程退出）。",
+                     L"√ Hook removed from manual-mapped module (PID: %lu, image kept until exit)."), pid);
+        AppendLog(msg);
+        return ok;
+    }
 
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
     if (hSnap == INVALID_HANDLE_VALUE) return FALSE;
@@ -582,6 +655,41 @@ static BOOL EjectDllByPid(DWORD pid) {
     return TRUE;
 }
 
+// ==================== 目标进程匹配 ====================
+
+// ASCII 小写化（进程名只会是 ASCII，无需 <wctype.h>）
+static inline wchar_t LowerW(wchar_t c) {
+    return (c >= L'A' && c <= L'Z') ? (wchar_t)(c - L'A' + L'a') : c;
+}
+
+// 大小写不敏感的通配符匹配，仅支持 '*'（匹配任意长度，含空）
+// 用途：目标进程名写成 "WoW*Firestorm*.exe"，即可覆盖 11.2.5 / 12.0.7 / 12.0.8 / 12.1.x
+//       等后续版本变化，也不必每次游戏更新都改代码。
+//       注意：FirestormLauncher.exe / FirestormAgent.exe 不含 "WoW" 前缀，不会被误命中。
+static bool WildcardMatchI(const wchar_t* pattern, const wchar_t* text) {
+    const wchar_t* p = pattern;
+    const wchar_t* t = text;
+    const wchar_t* starP = NULL;   // 最近一个 '*' 之后的模式位置
+    const wchar_t* starT = NULL;   // 该 '*' 对应的文本回退位置
+
+    while (*t) {
+        if (*p == L'*') {
+            starP = ++p;
+            starT = t;
+        } else if (*p && LowerW(*p) == LowerW(*t)) {
+            ++p;
+            ++t;
+        } else if (starP) {
+            p = starP;
+            t = ++starT;
+        } else {
+            return false;
+        }
+    }
+    while (*p == L'*') ++p;
+    return *p == L'\0';
+}
+
 static int InjectMatchingProcesses(const wchar_t* targetExe) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return 0;
@@ -591,7 +699,7 @@ static int InjectMatchingProcesses(const wchar_t* targetExe) {
 
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
-            if (_wcsicmp(pe.szExeFile, targetExe) == 0) {
+            if (WildcardMatchI(targetExe, pe.szExeFile)) {
                 if (g_InjectedPids.find(pe.th32ProcessID) == g_InjectedPids.end()) {
                     if (InjectDllByPid(pe.th32ProcessID)) {
                         count++;
@@ -614,7 +722,7 @@ static int EjectMatchingProcesses(const wchar_t* targetExe) {
 
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
-            if (_wcsicmp(pe.szExeFile, targetExe) == 0) {
+            if (WildcardMatchI(targetExe, pe.szExeFile)) {
                 if (EjectDllByPid(pe.th32ProcessID)) {
                     count++;
                 }
@@ -826,8 +934,8 @@ static void ApplyLanguage() {
     // 1. 窗口标题
     // 【版本升级须知】此处版本串需与 c/app.rc 的 VERSIONINFO、
     // c/dll/hook_proxy.cpp 的 GameTcpSpeed_GetVersion 同步递增。
-    SetWindowTextW(g_hMainWnd, L(L"GameTcpSpeed v3.1.3 | TCP 游戏加速器", 
-                                 L"GameTcpSpeed v3.1.3 | TCP Game Accelerator"));
+    SetWindowTextW(g_hMainWnd, L(L"GameTcpSpeed v3.1.5 | TCP 游戏加速器", 
+                                 L"GameTcpSpeed v3.1.5 | TCP Game Accelerator"));
 
     // 2. 语言切换按钮
     SetWindowTextW(g_hBtnLang, L(L"🇺🇸 English", L"🇨🇳 简体中文"));
@@ -1012,7 +1120,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         SendMessageW(g_hLblTarget, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
         g_Tab1Ctrls.push_back(g_hLblTarget);
 
-        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW 11.2.5 - Firestorm.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 110, y1 + 22, 230, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
+        g_hEditTargetName = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"WoW*Firestorm*.exe", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 110, y1 + 22, 230, 24, hWnd, (HMENU)ID_EDIT_TARGET_NAME, g_hInstance, NULL);
         SendMessageW(g_hEditTargetName, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
         g_Tab1Ctrls.push_back(g_hEditTargetName);
 
@@ -1177,7 +1285,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         LoadSavedSubscriptions();
         ApplyLanguage();
 
-        AppendLog(L"GameTcpSpeed v3.1.3 (常驻防崩版 / 极简纯净Hook / 模块钉住 + Drain 屏障) 初始化就绪。");
+        AppendLog(L"GameTcpSpeed v3.1.5 (常驻防崩版 / 极简纯净Hook / 模块钉住 + Drain 屏障) 初始化就绪。");
         return 0;
     }
 
@@ -1234,8 +1342,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             StartSingBox();
             int n = InjectMatchingProcesses(targetName);
             if (n == 0) {
-                AppendLog(L(L"未检测到运行中的游戏进程，可点击【开启自动监控】！", 
-                            L"No running game found. Click [Auto-Monitor]!"));
+                wchar_t msg[384];
+                swprintf(msg, 384,
+                         L(L"未检测到匹配 \"%ls\" 的进程；支持 * 通配符，例如 WoW*Firestorm*.exe",
+                           L"No process matched \"%ls\"; wildcard * is supported, e.g. WoW*Firestorm*.exe"),
+                         targetName);
+                AppendLog(msg);
+                AppendLog(L(L"提示: 可点击【开启自动监控】，游戏启动后自动注入。",
+                            L"Hint: click [Auto-Monitor] to inject once the game starts."));
             }
             break;
         }
@@ -1342,7 +1456,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     g_hMainWnd = CreateWindowExW(
         0, L"GameTcpSpeed_Win32_Class",
-        L"GameTcpSpeed v3.1.3",
+        L"GameTcpSpeed v3.1.5",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         posX, posY, winWidth, winHeight,
         NULL, NULL, hInstance, NULL);

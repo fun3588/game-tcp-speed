@@ -36,8 +36,23 @@ typedef int (WSAAPI* PFN_WSACONNECT)(SOCKET s, const sockaddr* name, int namelen
 static PFN_CONNECT pOriginalConnect = NULL;
 static PFN_WSACONNECT pOriginalWSAConnect = NULL;
 
-// 线程内部重入标记
-static thread_local BOOL g_InHook = FALSE;
+// 线程内部重入标记。
+// 原实现是 static thread_local：手动映射注入时镜像不经过 Windows 加载器，
+// 静态 TLS 目录没有任何人初始化（_tls_index 无值、TEB TLS 槽为空），
+// 游戏线程一进 HookedConnect 就会写到空槽触发崩溃。
+// 改为 TlsAlloc 动态槽位：进程级索引，任意线程 TlsGetValue/TlsSetValue 都安全，
+// 槽位未设置时 TlsGetValue 只会返回 NULL，不会解引用野指针。
+static DWORD g_TlsInHook = TLS_OUT_OF_INDEXES;
+
+static inline BOOL InHookGet() {
+    if (g_TlsInHook == TLS_OUT_OF_INDEXES) return FALSE;
+    return TlsGetValue(g_TlsInHook) != NULL;
+}
+
+static inline void InHookSet(BOOL v) {
+    if (g_TlsInHook != TLS_OUT_OF_INDEXES)
+        TlsSetValue(g_TlsInHook, v ? (LPVOID)(ULONG_PTR)1 : NULL);
+}
 
 static void WriteLog(const char* format, ...) {
     // 超过 5MB 自动截断清理，防止多开长时间运行导致磁盘膨胀
@@ -71,25 +86,51 @@ static void WriteLog(const char* format, ...) {
     fclose(fp);
 }
 
-// 加载同目录下的 proxy_config.ini
+// 从「DLL 在磁盘上的完整路径」推导日志与配置路径。
+// 普通 LoadLibrary 注入时由 GetModuleFileNameA 得到该路径；
+// 手动映射注入时镜像不在模块表里，GetModuleFileName 拿不到，必须由注入方经 GTS_Init 传入。
+static void LoadConfigFromPath(const char* dllDiskPath) {
+    if (!dllDiskPath || !*dllDiskPath) return;
+
+    char dir[MAX_PATH];
+    strncpy(dir, dllDiskPath, MAX_PATH - 1);
+    dir[MAX_PATH - 1] = '\0';
+
+    char* lastSlash = strrchr(dir, '\\');
+    if (!lastSlash) lastSlash = strrchr(dir, '/');
+    if (!lastSlash) return;
+    *lastSlash = '\0';
+
+    snprintf(g_LogPath, sizeof(g_LogPath), "%s\\proxy_hook.log", dir);
+
+    char iniPath[MAX_PATH];
+    snprintf(iniPath, sizeof(iniPath), "%s\\proxy_config.ini", dir);
+
+    GetPrivateProfileStringA("Proxy", "Host", "127.0.0.1", g_ProxyIp, sizeof(g_ProxyIp), iniPath);
+    g_ProxyEnabled = (GetPrivateProfileIntA("Proxy", "Enabled", 1, iniPath) != 0);
+    unsigned short p = (unsigned short)GetPrivateProfileIntA("Proxy", "Port", 0, iniPath);
+    if (p != 0) g_ProxyPort = p;
+}
+
+// 手动映射时由 GTS_Init 预置的 DLL 磁盘路径（普通注入时为 NULL）
+// 必须拷贝到本模块自己的静态缓冲区：注入方在 GTS_Init 返回后就会释放那块远端内存，
+// 而钩子内部每秒都会 LoadConfig(NULL) 热重载配置，直接持有外部指针必然变成野指针。
+static char g_ExternalDllPathBuf[MAX_PATH] = {0};
+static const char* g_ExternalDllPath = NULL;
+
+// 加载同目录下的 proxy_config.ini（普通注入路径）
 static void LoadConfig(HMODULE hModule) {
     if (hModule) g_hModule = hModule;
-    char modulePath[MAX_PATH];
-    if (GetModuleFileNameA(g_hModule, modulePath, MAX_PATH)) {
-        char* lastSlash = strrchr(modulePath, '\\');
-        if (lastSlash) {
-            *lastSlash = '\0';
-            snprintf(g_LogPath, sizeof(g_LogPath), "%s\\proxy_hook.log", modulePath);
-            
-            char iniPath[MAX_PATH];
-            snprintf(iniPath, sizeof(iniPath), "%s\\proxy_config.ini", modulePath);
-            
-            GetPrivateProfileStringA("Proxy", "Host", "127.0.0.1", g_ProxyIp, sizeof(g_ProxyIp), iniPath);
-            g_ProxyEnabled = (GetPrivateProfileIntA("Proxy", "Enabled", 1, iniPath) != 0);
-            unsigned short p = (unsigned short)GetPrivateProfileIntA("Proxy", "Port", 0, iniPath);
-            if (p != 0) g_ProxyPort = p;
-        }
+
+    // 手动映射的镜像不在模块表里，GetModuleFileNameA 必然失败，改用注入方传入的路径
+    if (g_ExternalDllPath && *g_ExternalDllPath) {
+        LoadConfigFromPath(g_ExternalDllPath);
+        return;
     }
+
+    char modulePath[MAX_PATH];
+    if (GetModuleFileNameA(g_hModule, modulePath, MAX_PATH))
+        LoadConfigFromPath(modulePath);
 }
 
 static BOOL g_ProxyAlive = TRUE;
@@ -129,8 +170,41 @@ static bool CheckProxyPortAlive(const char* ip, unsigned short port) {
     return alive;
 }
 
-static void RefreshConfigIfNeeded() {
-    DWORD now = GetTickCount();
+// ==================== 目标级失败记忆（自愈降级） ====================
+// 用途：某个 目标:端口 在隧道内握手超时/失败后，60 秒内该目标改走原生直连。
+// 背景：世界服 8285 偶发隧道内握手超时，若每次重连都继续走隧道，游戏会一直卡在
+//       "连接失败" 回不到游戏；改为短期直连可立刻恢复可玩，到期后自动恢复加速。
+static std::mutex g_TargetFailMutex;
+static std::unordered_map<unsigned long long, unsigned long long> g_TargetFailUntil;
+
+static inline unsigned long long TargetFailKey(unsigned long ip, unsigned short port) {
+    return ((unsigned long long)ip << 16) | (unsigned long long)port;
+}
+
+static bool IsTargetFailedRecently(unsigned long ip, unsigned short port) {
+    std::lock_guard<std::mutex> lock(g_TargetFailMutex);
+    auto it = g_TargetFailUntil.find(TargetFailKey(ip, port));
+    if (it == g_TargetFailUntil.end()) return false;
+    if (GetTickCount64() >= it->second) {
+        g_TargetFailUntil.erase(it);
+        return false;
+    }
+    return true;
+}
+
+static void MarkTargetFailed(unsigned long ip, unsigned short port) {
+    std::lock_guard<std::mutex> lock(g_TargetFailMutex);
+    unsigned long long now = GetTickCount64();
+    if (g_TargetFailUntil.size() > 64) {
+        for (auto it = g_TargetFailUntil.begin(); it != g_TargetFailUntil.end();) {
+            if (now >= it->second) it = g_TargetFailUntil.erase(it);
+            else ++it;
+        }
+    }
+    g_TargetFailUntil[TargetFailKey(ip, port)] = now + 60000ULL;
+}
+
+static void RefreshConfigIfNeeded() {    DWORD now = GetTickCount();
     if (now - g_lastConfigCheck > 1000) {
         g_lastConfigCheck = now;
         unsigned short oldPort = g_ProxyPort;
@@ -364,7 +438,7 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
 
     // 2. 【平滑降级直连】若未启用专线，或本地 Sing-box 核心尚未运行/未监听，套接字在发起连接前直接平滑走原生直连
     // 彻底杜绝调用 pOriginalConnect(s, 127.0.0.1) 失败后再次调用引发的 Winsock WSAEINVAL (10022) 崩溃！
-    if (g_InHook || !proxyEnabled || proxyPort == 0 || !proxyAlive) {
+    if (InHookGet() || !proxyEnabled || proxyPort == 0 || !proxyAlive) {
         if (!proxyAlive && proxyEnabled && name && name->sa_family == AF_INET) {
             sockaddr_in* target = (sockaddr_in*)name;
             if (ShouldAccelerate(target)) {
@@ -393,6 +467,14 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
             return pOriginalConnect(s, name, namelen);
         }
 
+        // 该目标近期在隧道内握手超时过 → 本次直接走原生直连。
+        // 否则游戏每次重连都会被同一不可用隧道目标卡死，表现为"断开后再也连不上"。
+        if (IsTargetFailedRecently(targetIp, targetPort)) {
+            WriteLog("[自愈降级] %s:%d 近期隧道握手失败，本次改走原生直连", ipStr, portNum);
+            if (isWSA) return pOriginalWSAConnect(s, name, namelen, lpCallerData, lpCalleeData, lpSQOS, lpGQOS);
+            return pOriginalConnect(s, name, namelen);
+        }
+
         WriteLog("[TCP 拦截] 检测到游戏核心连接: %s:%d，准备重定向至本地专线 %s:%d", ipStr, portNum, proxyIp, proxyPort);
 
         // 构造本地代理地址
@@ -403,10 +485,10 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
         proxyAddr.sin_addr.s_addr = inet_addr(proxyIp);
 
         // 设置重入保护，连接本地环回代理 (127.0.0.1)
-        g_InHook = TRUE;
+        InHookSet(TRUE);
         int connectRes = pOriginalConnect(s, (sockaddr*)&proxyAddr, sizeof(proxyAddr));
         int lastErr = WSAGetLastError();
-        g_InHook = FALSE;
+        InHookSet(FALSE);
 
         // 如果原套接字配置为非阻塞模式，connect 会返回 WSAEWOULDBLOCK，用 select 等待本地环回建立连接 (通常 < 1ms)
         if (connectRes != 0 && lastErr == WSAEWOULDBLOCK) {
@@ -442,12 +524,14 @@ static int HandleRedirectConnect(SOCKET s, const sockaddr* name, int namelen, BO
                 // 握手失败不主动关闭：句柄归游戏所有，由游戏在收到错误后自行关闭。
                 // 早期实现此处 closesocket(s)，游戏随后再关一次，句柄回收复用后会误杀
                 // 另一条正常连接 —— 多开时表现为随机掉线。
-                WriteLog("[TCP 错误] Socks5 握手失败: %s:%d，返回错误由游戏侧回收套接字", ipStr, portNum);
+                WriteLog("[TCP 错误] Socks5 握手失败: %s:%d，返回错误由游戏侧回收套接字（60 秒内该目标改走直连）", ipStr, portNum);
+                MarkTargetFailed(targetIp, targetPort);
                 WSASetLastError(WSAECONNREFUSED);
                 return SOCKET_ERROR;
             }
         } else {
             WriteLog("[TCP 错误] 连接本地代理 %s:%d 失败 (WSAGetLastError=%d)，返回错误由游戏侧回收重连", proxyIp, proxyPort, WSAGetLastError());
+            MarkTargetFailed(targetIp, targetPort);
             WSASetLastError(WSAECONNREFUSED);
             return SOCKET_ERROR;
         }
@@ -474,7 +558,7 @@ int WSAAPI HookedWSAConnect(SOCKET s, const sockaddr* name, int namelen, LPWSABU
 
 // 导出版本标识供外部注入检查（防二次注入）
 extern "C" __declspec(dllexport) DWORD WINAPI GameTcpSpeed_GetVersion() {
-    return 0x030103; // v3.1.3
+    return 0x030104; // v3.1.5
 }
 
 extern "C" __declspec(dllexport) void WINAPI GameTcpSpeed_Disable() {
@@ -487,48 +571,203 @@ extern "C" __declspec(dllexport) void WINAPI GameTcpSpeed_Enable() {
     WriteLog("[主动启用] 已启用专线代理重定向");
 }
 
+// ==================== 运行时初始化 / 卸载（两条注入路径共用） ====================
+
+// 启动探针开关：手动映射初始化失败时置 1，可定位「入口点在哪一步返回失败」。
+// 正常运行必须为 0，否则每次注入都会往临时目录写文件。
+#define GTS_BOOTLOG 1   // 临时开启定位 MinHook 卡点
+
+static void BootLog(const char* tag, unsigned long extra) {
+#if !GTS_BOOTLOG
+    (void)tag; (void)extra;
+    return;
+#else
+    HANDLE h = CreateFileA("C:/tmp/gts_boot.log", FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return;
+    char buf[160];
+    int n = wsprintfA(buf, "[%lu] %s extra=%lu\r\n", GetCurrentProcessId(), tag, extra);
+    DWORD wrote = 0;
+    WriteFile(h, buf, (DWORD)n, &wrote, NULL);
+    CloseHandle(h);
+#endif
+}
+
+// 普通 LoadLibrary 注入（DllMain 触发）与手动映射注入（GTS_Init 触发）都走这里。
+static void InitRuntime() {
+    // 幂等：手动映射路径下入口点与 GTS_Init 都可能触发，重复初始化会让 MinHook 二次挂钩
+    static LONG s_inited = 0;
+    if (InterlockedExchange(&s_inited, 1) != 0) return;
+
+    if (g_TlsInHook == TLS_OUT_OF_INDEXES)
+        g_TlsInHook = TlsAlloc();
+
+    WriteLog("=== Hook DLL v3.1.5 (常驻安全防崩版) 载入进程 (PID: %lu) ===", GetCurrentProcessId());
+
+    BootLog("MH_Initialize begin", 0);
+    MH_STATUS st = MH_Initialize();
+    BootLog("MH_Initialize ret", (unsigned long)st);
+    if (st == MH_OK) {
+        BootLog("hook connect begin", 0);
+        MH_STATUS s1 = MH_CreateHookApi(L"ws2_32.dll", "connect", (LPVOID)&HookedConnect, (LPVOID*)&pOriginalConnect);
+        BootLog("hook connect ret", (unsigned long)s1);
+        MH_STATUS s2 = MH_CreateHookApi(L"ws2_32.dll", "WSAConnect", (LPVOID)&HookedWSAConnect, (LPVOID*)&pOriginalWSAConnect);
+        BootLog("hook wsaconnect ret", (unsigned long)s2);
+        BootLog("EnableHook begin", 0);
+        MH_EnableHook(MH_ALL_HOOKS);
+        BootLog("EnableHook done", 0);
+
+        WriteLog("Winsock Hook v3.1.5 (常驻防崩 / 极简纯净 / 仅挂钩connect / 零触碰Socket生命周期) 已成功激活！");
+    } else {
+        WriteLog("MinHook 初始化失败！");
+    }
+}
+
+static void ShutdownRuntime() {
+    // 幂等：APC 与远线程可能各投递一次
+    static LONG s_down = 0;
+    if (InterlockedExchange(&s_down, 1) != 0) return;
+
+    g_IsDetaching.store(true, std::memory_order_release);
+    g_ProxyEnabled = FALSE;
+
+    // 【核心防御 2: 退出屏障与优雅等待 (Drain Barrier)】
+    // 必须等待所有正在执行 HookedConnect 的工作线程退出 Detour 区域
+    int spinWait = 0;
+    while (g_ActiveHookCount.load(std::memory_order_acquire) > 0 && spinWait < 100) {
+        Sleep(10);
+        spinWait++;
+    }
+
+    MH_DisableHook(MH_ALL_HOOKS);
+    MH_Uninitialize();
+    WriteLog("=== Hook DLL v3.1.5 安全卸载 (Drain耗时: %dms) ===", spinWait * 10);
+
+    // 钩子已全部拆除，此后不会再有线程进入 Detour，释放 TLS 槽位是安全的
+    if (g_TlsInHook != TLS_OUT_OF_INDEXES) {
+        TlsFree(g_TlsInHook);
+        g_TlsInHook = TLS_OUT_OF_INDEXES;
+    }
+}
+
 // DLL 入口点 (极简纯净Hook：仅挂钩 connect / WSAConnect，零触碰 Socket 生命周期与事件机制)
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(hModule);
+        BootLog("DllMain attach enter", 0);
         g_hModule = hModule;
 
-        // 【核心防御 1: 模块常驻锁定 (Module Pinning)】
-        // 游戏网络多线程极其密集，若外部执行 FreeLibrary 或远线程卸载，
-        // 会导致运行中的游戏网络线程 RIP 落在被释放的内存页而触发 ACCESS_VIOLATION。
-        // 通过 GET_MODULE_HANDLE_EX_FLAG_PIN 锁定模块常驻内存，
-        // 外部 FreeLibrary 会被 Windows 内核安全忽略，要停用加速走旁路标志位，杜绝野指针崩溃！
-        HMODULE hPinned = NULL;
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                           (LPCWSTR)hModule, &hPinned);
+        // 手动映射（g_ExternalDllPath 已预置）时镜像不在模块表里：
+        // DisableThreadLibraryCalls / GetModuleHandleEx 都是针对「真实已加载模块」的 API，
+        // 对无模块记录的镜像调用没有意义，直接跳过，避免任何未定义行为。
+        const BOOL bManualMapped = (g_ExternalDllPath != NULL);
+
+        if (!bManualMapped) {
+            DisableThreadLibraryCalls(hModule);
+
+            // 【核心防御 1: 模块常驻锁定 (Module Pinning)】
+            // 游戏网络多线程极其密集，若外部执行 FreeLibrary 或远线程卸载，
+            // 会导致运行中的游戏网络线程 RIP 落在被释放的内存页而触发 ACCESS_VIOLATION。
+            // 通过 GET_MODULE_HANDLE_EX_FLAG_PIN 锁定模块常驻内存。
+            HMODULE hPinned = NULL;
+            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                               (LPCWSTR)hModule, &hPinned);
+        }
 
         LoadConfig(hModule);
-        WriteLog("=== Hook DLL v3.1.3 (常驻安全防崩版) 载入进程 (PID: %lu) ===", GetCurrentProcessId());
-
-        if (MH_Initialize() == MH_OK) {
-            MH_CreateHookApi(L"ws2_32.dll", "connect", (LPVOID)&HookedConnect, (LPVOID*)&pOriginalConnect);
-            MH_CreateHookApi(L"ws2_32.dll", "WSAConnect", (LPVOID)&HookedWSAConnect, (LPVOID*)&pOriginalWSAConnect);
-            MH_EnableHook(MH_ALL_HOOKS);
-
-            WriteLog("Winsock Hook v3.1.3 (常驻防崩 / 极简纯净 / 仅挂钩connect / 零触碰Socket生命周期) 已成功激活！");
-        } else {
-            WriteLog("MinHook 初始化失败！");
-        }
+        BootLog("after LoadConfig", 0);
+        InitRuntime();
+        BootLog("after InitRuntime", 0);
     } else if (ul_reason_for_call == DLL_PROCESS_DETACH) {
-        g_IsDetaching.store(true, std::memory_order_release);
-        g_ProxyEnabled = FALSE;
-
-        // 【核心防御 2: 退出屏障与优雅等待 (Drain Barrier)】
-        // 若宿主进程自身正常退出时触发展开，必须等待所有正在执行 HookedConnect 的工作线程退出 Detour 区域
-        int spinWait = 0;
-        while (g_ActiveHookCount.load(std::memory_order_acquire) > 0 && spinWait < 100) {
-            Sleep(10);
-            spinWait++;
-        }
-
-        MH_DisableHook(MH_ALL_HOOKS);
-        MH_Uninitialize();
-        WriteLog("=== Hook DLL v3.1.3 安全卸载 (Drain耗时: %dms) ===", spinWait * 10);
+        ShutdownRuntime();
     }
+    return TRUE;
+}
+
+// ==================== 手动映射入口（绕过目标进程的模块签名策略） ====================
+// 被保护的宿主进程（如 WoW 12.0.7 的 Wow_loader.dll）只允许加载微软签名模块，
+// 未签名 DLL 走 LoadLibrary 一律被拒。手动映射不经过加载器，因此碰不到该校验。
+// 此时镜像不在模块表中：GetModuleFileName 拿不到路径，TLS 回调也没有加载器代为调用，
+// 所以两件事都由注入方经本入口补齐（ctx 结构与 gui/manual_map.h 中的定义保持一致）。
+#pragma pack(push, 8)
+struct GTSInitCtx {
+    uintptr_t     imageBase;   // 本镜像在宿主进程中的基址
+    const char*   dllPath;     // DLL 在磁盘上的完整路径，用于定位同目录的 proxy_config.ini
+    volatile LONG done;        // 完成后写 1，注入方据此确认 APC 是否真的被执行
+};
+#pragma pack(pop)
+
+// 手动映射时自己走一遍本镜像的 TLS 回调（正常情况下由 Windows 加载器调用）。
+static void RunOwnTlsCallbacks(HMODULE hBase) {
+    if (!hBase) return;
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)hBase;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;
+
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)hBase + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return;
+
+    IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
+    if (!dir.VirtualAddress || !dir.Size) return;
+
+    PIMAGE_TLS_DIRECTORY tls = (PIMAGE_TLS_DIRECTORY)((BYTE*)hBase + dir.VirtualAddress);
+    if (!tls->AddressOfCallBacks) return;
+
+    PIMAGE_TLS_CALLBACK* cb = (PIMAGE_TLS_CALLBACK*)tls->AddressOfCallBacks;
+    for (; *cb; ++cb) {
+        (*cb)((PVOID)hBase, DLL_PROCESS_ATTACH, NULL);
+    }
+}
+
+extern "C" __declspec(dllexport) BOOL WINAPI GTS_Init(GTSInitCtx* ctx) {
+    // 【必须最先做】APC 会同时投递到目标进程的很多线程，多个线程可能同时进这里。
+    // _CRT_INIT 与 DllMain 都不是并发安全的，两个线程同时跑会把宿主进程直接打死。
+    // 用原子抢占保证只有一个线程真正执行初始化，其余立即返回。
+    static LONG s_initClaimed = 0;
+    if (InterlockedExchange(&s_initClaimed, 1) != 0) {
+        // 只有「尚无终态」时才写 3，否则会把已完成的 1/2 覆盖掉
+        if (ctx && ctx->done == 0) ctx->done = 3;
+        return TRUE;
+    }
+
+    BootLog("GTS_Init enter", 0);
+    if (!ctx || !ctx->imageBase) { BootLog("bad ctx", 0); return FALSE; }
+    BootLog("ctx ok, base", (unsigned long)(ctx->imageBase & 0xFFFFFFFF));
+
+    HMODULE hBase = (HMODULE)ctx->imageBase;
+    g_hModule = hBase;
+
+    // 先给 DllMain 备好路径（它拿不到模块文件名）。
+    // 复制而不是保存指针：注入方随后会释放远端上下文内存。
+    if (ctx->dllPath) {
+        strncpy(g_ExternalDllPathBuf, ctx->dllPath, MAX_PATH - 1);
+        g_ExternalDllPathBuf[MAX_PATH - 1] = '\0';
+        g_ExternalDllPath = g_ExternalDllPathBuf;
+    }
+
+    // 【关键】手动映射不会有加载器替我们调用 PE 入口点。
+    // 不调它则 CRT（_CRT_INIT）与 C++ 静态初始化都不执行，
+    // 表现为注入后宿主进程在首次 connect 时以 0xC0000094（整数除零）等陷阱崩溃。
+    // 入口点内部会先跑 CRT 初始化，再转入本文件的 DllMain。
+    RunOwnTlsCallbacks(hBase);
+
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)hBase;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return FALSE;
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)hBase + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return FALSE;
+
+    typedef BOOL (WINAPI *PFN_ENTRY)(HINSTANCE, DWORD, LPVOID);
+    PFN_ENTRY entry = (PFN_ENTRY)((BYTE*)hBase + nt->OptionalHeader.AddressOfEntryPoint);
+    BootLog("before entry", (unsigned long)(nt->OptionalHeader.AddressOfEntryPoint));
+    BOOL r = entry((HINSTANCE)hBase, DLL_PROCESS_ATTACH, NULL);
+    BootLog("after entry, result", r);
+
+    // 通知注入方「初始化确实在这个线程上跑完了」——APC 可能排队很久才被投递
+    ctx->done = r ? 1 : 2;
+    return r;
+}
+
+// 手动映射的镜像无法用 FreeLibrary 卸载：这里只拆钩子并置旁路，内存交由宿主进程退出回收。
+extern "C" __declspec(dllexport) BOOL WINAPI GTS_Shutdown(void) {
+    ShutdownRuntime();
     return TRUE;
 }

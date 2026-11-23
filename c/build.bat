@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  GameTcpSpeed v3.1.3 - C module build (CMake + Ninja)
+rem  GameTcpSpeed v3.1.5 - C module build (CMake + Ninja)
 rem  Outputs: GameTcpSpeed.exe / hook_proxy.dll in this folder
 rem  Requires: cmake, ninja, g++ (MinGW-w64 x64) on PATH
 rem ============================================================

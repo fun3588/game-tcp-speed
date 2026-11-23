@@ -1,4 +1,4 @@
-# C 模块：纯经典 Win32 API + GDI 极速客户端与 Winsock Hook 核心 (v3.1.3)
+# C 模块：纯经典 Win32 API + GDI 极速客户端与 Winsock Hook 核心 (v3.1.5)
 
 [中文说明](#-中文说明) • [English Documentation](#-english-documentation)
 
@@ -6,13 +6,13 @@
 
 ## 🇨🇳 中文说明
 
-本目录包含 **Winsock API Hook** 进程级 TCP 拦截动态链接库（`hook_proxy.dll`）以及 v3.1.3 纯经典 Win32 旗舰图形客户端（`GameTcpSpeed.exe`）。
+本目录包含 **Winsock API Hook** 进程级 TCP 拦截动态链接库（`hook_proxy.dll`）以及 v3.1.5 纯经典 Win32 旗舰图形客户端（`GameTcpSpeed.exe`）。
 
-### v3.1.3 核心特性
+### v3.1.5 核心特性
 
 1. **纯经典 Win32 API + GDI (零外部依赖)**：
    - 彻底摒弃一切 WebView2、Electron 与 .NET 托管运行时的数百兆内存开销；
-   - 运行时内存仅 **3 ~ 5 MB**，启动毫秒级秒开，单文件 **309 KB**（静态链接 libstdc++/libgcc/winpthread，不依赖任何第三方运行时 DLL）；
+   - 运行时内存仅 **3 ~ 5 MB**，启动毫秒级秒开，单文件 **336 KB**（静态链接 libstdc++/libgcc/winpthread，不依赖任何第三方运行时 DLL）；
    - 纯原生 Windows 控件与 GDI 绘制，零 DirectX 依赖，在任何纯净精简系统上均可直接运行。
 2. **极简纯净 Hook（Minimal Pure Hook）**：
    - 整个 DLL **仅挂钩 `connect` 与 `WSAConnect`**，完全剥离 `closesocket` / `ioctlsocket` / `WSAEventSelect` / `WSAAsyncSelect`；
@@ -33,6 +33,10 @@
 8. **启动起飞就绪锁 (Pre-flight Readiness Lock) 与多开极速捕获**：
    - 启动 Sing-box 时采用 50ms 紧凑就绪探针，必须确实验证本地监听就绪才放行注入，杜绝“服务未起先注入导致的断网”；
    - 自动注入扫描周期优化为 200ms，多开游戏启动瞬间毫秒级自动捕获接管。
+9. **目标进程通配符匹配（Wildcard Target，v3.1.4）**：
+   - 匹配逻辑由 `_wcsicmp` 全名精确比对改为大小写不敏感的 `WildcardMatchI()`，默认目标 **`WoW*Firestorm*.exe`**；
+   - 游戏随版本改名（11.2.5 → 12.0.7 → …）无需改代码重编译即可继续命中；`FirestormLauncher.exe` / `FirestormAgent.exe` 因无 `WoW` 前缀不会被误注入；
+   - 未命中时日志回显当前表达式并提示可用 `*`，便于快速定位。
 
 ### 编译构建
 
@@ -41,8 +45,8 @@
 build.bat
 ```
 产物输出至当前目录：
-- `GameTcpSpeed.exe`：纯经典 Win32 API + GDI 双语版主程序 (v3.1.3)。
-- `hook_proxy.dll`：注入核心动态链接库 (v3.1.3)。
+- `GameTcpSpeed.exe`：纯经典 Win32 API + GDI 双语版主程序 (v3.1.5)。
+- `hook_proxy.dll`：注入核心动态链接库 (v3.1.5)。
 
 > 前置依赖：`cmake`、`ninja`、`g++`（MinGW-w64 x64，UCRT 运行时）需在 PATH 中。
 
@@ -50,12 +54,12 @@ build.bat
 
 ## 🇺🇸 English Documentation
 
-This directory contains the core process-level TCP proxy DLL (`hook_proxy.dll`) and the v3.1.3 native Win32 GUI client (`GameTcpSpeed.exe`).
+This directory contains the core process-level TCP proxy DLL (`hook_proxy.dll`) and the v3.1.5 native Win32 GUI client (`GameTcpSpeed.exe`).
 
-### Key v3.1.3 Features
+### Key v3.1.5 Features
 
 1. **Pure Win32 API + GDI (Zero Dependencies)**:
-   - Eliminates WebView2/.NET overhead, reducing memory footprint to **3 ~ 5 MB RAM**. Starts in `< 0.01s`, single binary **309 KB** (statically linked, no external runtime DLLs).
+   - Eliminates WebView2/.NET overhead, reducing memory footprint to **3 ~ 5 MB RAM**. Starts in `< 0.01s`, single binary **336 KB** (statically linked, no external runtime DLLs).
    - Zero DirectX or GPU requirement, runs out-of-the-box on any stripped Windows system.
 2. **Minimal Pure Hook Architecture**:
    - Hooks **only** `connect` and `WSAConnect`; all auxiliary hooks (`closesocket`, `ioctlsocket`, `WSAEventSelect`, `WSAAsyncSelect`) and socket context maps are removed.
@@ -71,6 +75,10 @@ This directory contains the core process-level TCP proxy DLL (`hook_proxy.dll`) 
    - Uses an ephemeral probe socket rather than touching the game's actual socket, completely eliminating Winsock `WSAEINVAL (10022)` or `WSAEISCONN (10056)` errors upon direct fallback.
 8. **Pre-flight Readiness Lock & Multi-boxing Polling Boost**:
    - Enforces a 50ms verification loop ensuring Sing-box local inbound is active before injecting; boosts auto-injection cycle to 200ms for seamless multi-client game launches.
+9. **Wildcard Target Matching (v3.1.4)**:
+   - Exact `_wcsicmp` comparison replaced by the case-insensitive `WildcardMatchI()` helper; the default target is **`WoW*Firestorm*.exe`**.
+   - Survives game client renames (11.2.5 → 12.0.7 → …) without recompiling, while `FirestormLauncher.exe` / `FirestormAgent.exe` are never mis-injected (no `WoW` prefix).
+   - On zero matches the log echoes the active pattern and mentions `*` support.
 
 ### Build Instructions
 
@@ -79,7 +87,7 @@ Run `build.bat` in this directory (or double-click it):
 build.bat
 ```
 Outputs:
-- `GameTcpSpeed.exe`: Pure Win32 API + GDI bilingual client (v3.1.3).
-- `hook_proxy.dll`: Winsock proxy hook module (v3.1.3).
+- `GameTcpSpeed.exe`: Pure Win32 API + GDI bilingual client (v3.1.5).
+- `hook_proxy.dll`: Winsock proxy hook module (v3.1.5).
 
 > Requires `cmake`, `ninja` and `g++` (MinGW-w64 x64, UCRT) on PATH.
