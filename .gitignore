@@ -33,3 +33,14 @@ Sing-box/config.runtime*.json
 Sing-box/runtime*.json
 Sing-box/config.json.bak
 Sing-box/*.json.tmp
+
+# 本地 VPS 运维资产（含公网 IP 与凭据，禁止进入公开仓库）
+docs/VPS节点运维记录.md
+tools/fail2ban-jail.local
+tools/linux_audit.sh
+tools/linux_net_tune.sh
+tools/net_compare.py
+tools/nftables.conf
+tools/proxy_manager_ui.go
+tools/sshd-99-hardening.conf
+tools/traffic-guard.sh
